@@ -14,6 +14,16 @@ start.cmd
 
 `index.html` をダブルクリックしても動きますが、そちらは **自動更新が効きません**（下記）。
 
+### 別の PC で使う（GitHub Pages）
+
+`https://pachimi14.github.io/kakuyomu-text-reader/` を **Chrome か Edge** で開き、「フォルダを開く」で原稿フォルダを選びます。
+その PC には何もインストールしなくて構いません。原稿はブラウザの中で読むだけで、どこにもアップロードされません。
+https で開くので、自動更新もそのまま効きます。
+
+- 読み上げ（VOICEVOX）と辞書の保存はこの PC 専用です。Pages 版では使えません。
+- `main` に push すると `.github/workflows/pages.yml` が自動で公開し直します。
+- 初回だけ、リポジトリの Settings → Pages → Source を「GitHub Actions」にしてください。
+
 ## フォルダの構成
 
 `drafts` のようなフォルダを開くと、話と版を自動で組み立てます。
