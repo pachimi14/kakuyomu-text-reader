@@ -94,6 +94,7 @@
     cursor: pointer;
     line-height: 1.4;
     max-width: 22ch;
+    white-space: nowrap;   /* 幅が足りないとき日本語が1文字ずつ縦に積まれるのを防ぐ */
   }
   .subbar button, .subbar select { font-size: 12px; padding: 3px 8px; }
   button:hover:not(:disabled), select:hover { border-color: var(--accent); }
@@ -117,7 +118,7 @@
   /* ---------- settings panel ---------- */
   .settings {
     position: absolute;
-    top: 46px;
+    top: calc(var(--header-h, 46px) + 2px);   /* ヘッダは折り返すと高くなるので決め打ちにしない */
     right: 12px;
     z-index: 30;
     width: 268px;
@@ -316,6 +317,28 @@
   }
   body.dragging .dropring { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
   [hidden] { display: none !important; }
+
+  /* 狭い画面。ヘッダを1行に詰めると項目が潰れて画面外へ出てしまうので折り返す。
+     横スクロールで隠れた操作を探させるより、行を増やして全部見せる。 */
+  @media (max-width: 720px) {
+    header, .subbar { flex-wrap: wrap; row-gap: 6px; padding: 6px 8px; }
+    header > *, .subbar > * { flex-shrink: 0; }
+    header .spacer { display: none; }                 /* 行を分けると1行ぶん無駄になる */
+    header button, header select, .subbar button, .subbar select { padding: 5px 8px; }
+    /* 話の選択は伸ばさない。伸ばすと1行を占有して、ヘッダが不必要に高くなる */
+    #epSelect { flex: 0 1 11rem; min-width: 6rem; max-width: none; }
+    /* パネルが広いと、チェックボックスと文字が両端へ離れて対応が読めなくなる */
+    #settings label.check { justify-content: flex-start; gap: 8px; }
+    .settings {
+      left: 8px;
+      right: 8px;
+      width: auto;
+      max-height: calc(100vh - var(--header-h, 46px) - 18px);
+      overflow-y: auto;                               /* 行が多いので中でスクロールさせる */
+      -webkit-overflow-scrolling: touch;
+    }
+  }
+
 </style>
 </head>
 <body>
@@ -330,6 +353,7 @@
   </div>
   <button id="diffBtn" aria-pressed="false" title="差分表示の切替 ( D )" disabled>差分</button>
   <button id="ttsBtn" aria-pressed="false" title="読み上げ ( V )" disabled>読み上げ</button>
+  <button id="reloadBtn" title="いま読み直す ( R )" disabled>更新</button>
   <span class="spacer"></span>
   <div class="seg" role="group" aria-label="書字方向">
     <button id="btnVertical"   aria-pressed="true">縦書き</button>
@@ -1181,6 +1205,7 @@
     $("prevVer").disabled = verIndex <= 0;
     $("nextVer").disabled = verIndex >= versions.length - 1;
     $("diffBtn").disabled = versions.length < 2;
+    $("reloadBtn").disabled = source === "input";   // input 方式は開き直すしかない
 
     const base = $("baseSelect");
     base.innerHTML = ['<option value="auto">自動（1つ前の版）</option>']
@@ -1458,6 +1483,43 @@
   setInterval(() => { if (source === "server") pollRemote(); }, 3000);
   setInterval(() => { if (source === "github") pollRemote(); }, 30000);
 
+  // 手動更新。自動更新の間隔を待たずに、いまの読み込み元をもう一度読む。
+  // GitHub は監視が30秒間隔なので、書いた直後に確かめたいときに使う。
+  // 一覧が変わっていなくても本文を読み直す点が pollRemote と違う。
+  async function reloadNow() {
+    if (!library.length || polling) return;
+    if (source === "input") {
+      // この方式のファイルは開いた時点のスナップショットで、読み直せない
+      setLive(false, "更新するには開き直してください");
+      return;
+    }
+    const btn = $("reloadBtn");
+    polling = true;
+    btn.disabled = true;
+    setLive(false, "更新中…");
+    try {
+      const lib = await rescan();
+      if (lib.length) {
+        const keep = currentKeep();
+        library = lib;
+        const at = library.findIndex((e) => e.label === keep.ep);
+        epIndex = at >= 0 ? at : 0;
+        const versions = library[epIndex].versions;
+        const found = versions.findIndex((v) => v.label === keep.ver);
+        verIndex = found >= 0 ? found : versions.length - 1;
+        fillEpisodeSelect();
+      }
+      await showSelection(true);
+      setLive(settings.autoReload, null);
+    } catch (err) {
+      setLive(false, source === "github" ? "GitHub へ接続できません" : "読み直せませんでした");
+    } finally {
+      polling = false;
+      btn.disabled = !library.length || source === "input";
+    }
+  }
+  $("reloadBtn").addEventListener("click", reloadNow);
+
   /* ============================================================
      操作
      ============================================================ */
@@ -1490,6 +1552,7 @@
       case "p": case "P": gotoChange(-1); break;
       case "d": case "D": if (!$("diffBtn").disabled) $("diffBtn").click(); break;
       case "v": case "V": if (!$("ttsBtn").disabled) ttsToggle(); break;
+      case "r": case "R": if (!$("reloadBtn").disabled) reloadNow(); break;
       case "Escape":     closeSettings(); return;
       default: return;
     }
@@ -1993,6 +2056,15 @@
   applySettings();
   syncDiffUI();
   updateProgress();
+  // ヘッダは幅が狭いと折り返して高くなる。設定パネルの上端を決め打ちにしないよう、
+  // 実際の高さを CSS 変数へ流しておく。
+  const headerEl = document.querySelector("header");
+  const syncHeaderHeight = () =>
+    document.documentElement.style.setProperty("--header-h", headerEl.offsetHeight + "px");
+  if (window.ResizeObserver) new ResizeObserver(syncHeaderHeight).observe(headerEl);
+  addEventListener("resize", syncHeaderHeight);
+  syncHeaderHeight();
+
   setLive(false, null);
 
   /* ============================================================
