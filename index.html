@@ -1,0 +1,1772 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>カクヨムテキストリーダー</title>
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --panel: #ffffff;
+    --panel-2: #f1f1ee;
+    --panel-border: #e2e2dd;
+    --text: #1a1a1a;
+    --text-dim: #6b6b66;
+    --paper: #ffffff;
+    --paper-text: #222222;
+    --accent: #1e7a6f;
+    --ins-bg: rgba(31,138,76,.16);
+    --ins-fg: #14683c;
+    --del-fg: #b3352c;
+    --del-bg: rgba(179,53,44,.10);
+    --shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+  :root[data-theme="sepia"] {
+    --bg: #ece2cf;
+    --panel: #f3ebdc;
+    --panel-2: #e7dcc4;
+    --panel-border: #ddd0b6;
+    --text: #3b3226;
+    --text-dim: #7a6c56;
+    --paper: #f7efdf;
+    --paper-text: #3b3226;
+    --accent: #8a6a2f;
+    --ins-bg: rgba(46,120,70,.18);
+    --ins-fg: #2f6b40;
+    --del-fg: #a2402c;
+    --del-bg: rgba(162,64,44,.10);
+    --shadow: 0 1px 3px rgba(80,60,20,.10);
+  }
+  :root[data-theme="dark"] {
+    --bg: #141416;
+    --panel: #1d1d20;
+    --panel-2: #26262b;
+    --panel-border: #33333a;
+    --text: #d6d6d2;
+    --text-dim: #8e8e95;
+    --paper: #1a1a1c;
+    --paper-text: #c9c9c4;
+    --accent: #6fb3a8;
+    --ins-bg: rgba(63,185,80,.22);
+    --ins-fg: #7ee08c;
+    --del-fg: #f2776b;
+    --del-bg: rgba(242,119,107,.12);
+    --shadow: 0 1px 3px rgba(0,0,0,.4);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Yu Gothic UI", "Yu Gothic", YuGothic, "Hiragino Kaku Gothic ProN",
+                 "Noto Sans JP", Meiryo, system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ---------- bars ---------- */
+  header, .subbar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--panel-border);
+    z-index: 20;
+  }
+  header { box-shadow: var(--shadow); }
+  .subbar { background: var(--panel-2); font-size: 12px; color: var(--text-dim); }
+  .subbar[hidden] { display: none; }
+  .spacer { flex: 1 1 auto; }
+
+  button, select {
+    font: inherit;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+    line-height: 1.4;
+    max-width: 22ch;
+  }
+  .subbar button, .subbar select { font-size: 12px; padding: 3px 8px; }
+  button:hover:not(:disabled), select:hover { border-color: var(--accent); }
+  button:disabled { opacity: .4; cursor: default; }
+  button:focus-visible, select:focus-visible, input:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .nav { display: inline-flex; align-items: center; gap: 4px; }
+  .nav button { padding: 5px 8px; }
+  .seg { display: inline-flex; border: 1px solid var(--panel-border); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; }
+  .seg button + button { border-left: 1px solid var(--panel-border); }
+  label.check { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  label.check input { accent-color: var(--accent); }
+
+  .note { color: var(--text-dim); font-size: 12px; }
+  .note.warn { color: var(--del-fg); }
+
+  /* ---------- settings panel ---------- */
+  .settings {
+    position: absolute;
+    top: 46px;
+    right: 12px;
+    z-index: 30;
+    width: 268px;
+    padding: 14px 16px 16px;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.18);
+    display: none;
+  }
+  .settings[data-open="true"] { display: block; }
+  .row { margin-bottom: 14px; }
+  .row:last-child { margin-bottom: 0; }
+  .row > label {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 12px; color: var(--text-dim); margin-bottom: 6px;
+  }
+  .row output { font-variant-numeric: tabular-nums; color: var(--text); }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .choices { display: flex; gap: 6px; }
+  .choices button { flex: 1; text-align: center; max-width: none; }
+  .hint { font-size: 11px; line-height: 1.8; color: var(--text-dim); margin: 12px 0 0; }
+  .hint code { font-family: ui-monospace, Consolas, monospace; }
+
+  /* ---------- reading stage ---------- */
+  main { flex: 1 1 auto; position: relative; min-height: 0; background: var(--paper); }
+  .stage { position: absolute; inset: 0; padding: 0 3.2vw; }
+  .viewport { height: 100%; overflow: auto; scrollbar-width: none; }
+  .viewport::-webkit-scrollbar { display: none; }
+
+  .content {
+    color: var(--paper-text);
+    font-family: "Yu Mincho", YuMincho, "Hiragino Mincho ProN", "ヒラギノ明朝 ProN W3",
+                 "Noto Serif JP", "MS PMincho", serif;
+    font-size: 18px;
+    line-height: 1.9;
+    letter-spacing: .02em;
+    text-align: justify;
+  }
+  .content[data-font="gothic"] {
+    font-family: "Yu Gothic", YuGothic, "Hiragino Kaku Gothic ProN",
+                 "Noto Sans JP", Meiryo, sans-serif;
+  }
+
+  /* 縦書き。vertical-rl ではインライン軸が縦なので padding-inline が上下余白になる */
+  .viewport[data-mode="vertical"] .content {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    height: 100%;
+    padding-inline: 4.5vh;
+    padding-block: 0;
+  }
+  /* 横書き */
+  .viewport[data-mode="horizontal"] .content {
+    writing-mode: horizontal-tb;
+    max-width: 38em;
+    margin: 0 auto;
+    padding-block: 5vh;
+  }
+
+  .content p {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  /* 空行は 1 行ぶんの高さを保つ（空の行ボックスを作る） */
+  .content p.blank::before { content: "\200B"; }
+  .content h1, .content h2, .content h3 {
+    margin: 0;
+    font-weight: 600;
+    line-height: 1.9;
+    white-space: pre-wrap;
+  }
+  .content h1 { font-size: 1.5em; padding-block-start: 1.2em; padding-block-end: .6em; }
+  .content h2 { font-size: 1.28em; padding-block-start: 1em; padding-block-end: .4em; }
+  .content h3 { font-size: 1.1em; padding-block-start: .8em; padding-block-end: .2em; }
+  .content hr {
+    border: 0;
+    border-block-start: 1px solid currentColor;
+    opacity: .25;
+    margin-block: 1.6em;
+    inline-size: 6em;
+    margin-inline: auto;
+  }
+
+  /* ルビ */
+  .content ruby { ruby-align: center; }
+  .content rt { font-size: .5em; font-weight: inherit; letter-spacing: 0; opacity: .92; }
+  /* 傍点 */
+  .content em.bouten {
+    font-style: normal;
+    text-emphasis: filled dot currentColor;
+    -webkit-text-emphasis: filled dot currentColor;
+    text-emphasis-position: over right;
+    -webkit-text-emphasis-position: over right;
+  }
+
+  /* ---------- 差分 ---------- */
+  .content ins {
+    text-decoration: none;
+    background: var(--ins-bg);
+    color: var(--ins-fg);
+    border-radius: 2px;
+    padding-inline: .05em;
+  }
+  .content del {
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+    background: var(--del-bg);
+    color: var(--del-fg);
+    opacity: .8;
+  }
+  .content p.chg.del-hidden::before {
+    content: "⋯";
+    color: var(--del-fg);
+    opacity: .5;
+    font-size: .75em;
+  }
+  .content p.chg[data-focus="true"] ins,
+  .content p.chg[data-focus="true"] del { outline: 1px solid var(--accent); }
+  .content[data-diff="off"] ins { background: none; color: inherit; padding-inline: 0; }
+
+
+  /* ---------- 読み上げ ---------- */
+  ::highlight(tts-current) {
+    background-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .ttsbar input[type="range"] { width: 104px; }
+  #ttsSpeaker { max-width: 18ch; }
+  .tts-status { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #changeInfo { white-space: nowrap; }
+  .dictpanel { width: 380px; max-height: 70vh; overflow: auto; }
+  .dict-head, .dict-row { display: grid; grid-template-columns: 1fr 1fr 3.6em 1.6em; gap: 5px; align-items: center; }
+  .dict-head { font-size: 11px; color: var(--text-dim); margin-bottom: 5px; }
+  .dict-row { margin-bottom: 5px; }
+  .dict-row input {
+    width: 100%; font: inherit; font-size: 12px; color: var(--text);
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 5px; padding: 3px 5px;
+  }
+  .dict-row button { padding: 2px 5px; max-width: none; line-height: 1; }
+  .dict-foot { display: flex; gap: 6px; margin-top: 10px; }
+  .dict-foot button { flex: 1; max-width: none; }
+  #changeNo {
+    width: 5.5ch; font: inherit; font-size: 12px; text-align: right;
+    color: var(--text); background: var(--panel);
+    border: 1px solid var(--panel-border); border-radius: 5px; padding: 2px 4px;
+  }
+
+  /* ---------- footer ---------- */
+  footer {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 12px;
+    background: var(--panel);
+    border-top: 1px solid var(--panel-border);
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  footer .path {
+    max-width: 38ch; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; direction: rtl; text-align: left;
+  }
+  .progress { flex: 1 1 auto; height: 4px; background: var(--panel-border); border-radius: 2px; overflow: hidden; }
+  .progress > i { display: block; height: 100%; width: 0; background: var(--accent); }
+  .pageno { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .live { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .live::before {
+    content: ""; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-dim);
+  }
+  .live[data-on="true"]::before { background: var(--accent); }
+
+  /* ---------- empty state ---------- */
+  .empty {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px; text-align: center; padding: 24px; color: var(--text-dim);
+  }
+  .empty h1 {
+    margin: 0; font-size: 19px; font-weight: 600; color: var(--text);
+    font-family: "Yu Mincho", YuMincho, "Hiragino Mincho ProN", serif; letter-spacing: .08em;
+  }
+  .empty p { margin: 0; font-size: 13px; line-height: 1.9; }
+  .empty pre {
+    margin: 0; font-size: 11.5px; line-height: 1.7; text-align: left;
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 8px; padding: 12px 16px; color: var(--text-dim);
+  }
+  .dropring {
+    position: absolute; inset: 14px;
+    border: 2px dashed transparent; border-radius: 14px; pointer-events: none;
+    transition: border-color .12s, background-color .12s;
+  }
+  body.dragging .dropring { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <button class="primary" id="openBtn">フォルダを開く</button>
+  <select id="epSelect" title="話を選ぶ" disabled></select>
+  <div class="nav">
+    <button id="prevVer" title="前の版 ( [ )" disabled>‹</button>
+    <select id="verSelect" title="版を選ぶ" disabled></select>
+    <button id="nextVer" title="次の版 ( ] )" disabled>›</button>
+  </div>
+  <button id="diffBtn" aria-pressed="false" title="差分表示の切替 ( D )" disabled>差分</button>
+  <button id="ttsBtn" aria-pressed="false" title="読み上げ ( V )" disabled>読み上げ</button>
+  <span class="spacer"></span>
+  <div class="seg" role="group" aria-label="書字方向">
+    <button id="btnVertical"   aria-pressed="true">縦書き</button>
+    <button id="btnHorizontal" aria-pressed="false">横書き</button>
+  </div>
+  <button id="settingsBtn" aria-expanded="false">表示設定</button>
+  <input type="file" id="dirInput" webkitdirectory directory multiple hidden>
+</header>
+
+<div class="subbar" id="diffbar" hidden>
+  <label class="check" for="baseSelect">比較元</label>
+  <select id="baseSelect"></select>
+  <label class="check"><input type="checkbox" id="showDel" checked>削除も表示</label>
+  <span class="nav">
+    <button id="prevChange" title="前の変更 ( P )">前の変更</button>
+    <button id="nextChange" title="次の変更 ( N )">次の変更</button>
+  </span>
+  <span id="changeInfo">変更 <input type="number" id="changeNo" min="1" step="1" title="番号を入れるとその変更へ移動"> / <span id="changeTotal">0</span> 箇所</span>
+  <span class="spacer"></span>
+  <span class="note" id="diffNote"></span>
+</div>
+
+<div class="subbar ttsbar" id="ttsbar" hidden>
+  <select id="ttsSpeaker" title="話者"></select>
+  <button id="dictBtn" aria-expanded="false">辞書</button>
+  <label class="check" for="ttsSpeed">速さ <output id="ttsSpeedOut">1.2</output></label>
+  <input type="range" id="ttsSpeed" min="0.5" max="2" step="0.05" value="1.2">
+  <label class="check" for="ttsVolume">音量 <output id="ttsVolumeOut">100%</output></label>
+  <input type="range" id="ttsVolume" min="0" max="1" step="0.02" value="1">
+  <span class="nav">
+    <button id="ttsPlay">再生</button>
+    <button id="ttsStop">停止</button>
+  </span>
+  <span class="tts-status" id="ttsStatus"></span>
+  <span class="spacer"></span>
+  <span class="note" id="ttsNote"></span>
+</div>
+
+<div class="settings dictpanel" id="dictPanel" data-open="false">
+  <div class="dict-head"><span>表記</span><span>読み（カタカナ）</span><span title="アクセントが下がる位置。0 は平板">アク</span><span></span></div>
+  <div id="dictRows"></div>
+  <div class="dict-foot">
+    <button id="dictAdd">語を追加</button>
+    <button id="dictSave" class="primary">保存して反映</button>
+  </div>
+  <p class="hint" id="dictNote">その箇所だけ読みを変えたいときは本文に <code>｜漢字《よみ》</code> とルビを振る方が簡単です。</p>
+</div>
+
+<div class="settings" id="settings" data-open="false">
+  <div class="row">
+    <label for="fontSize">文字サイズ <output id="fontSizeOut">18px</output></label>
+    <input type="range" id="fontSize" min="14" max="30" step="1" value="18">
+  </div>
+  <div class="row">
+    <label for="lineHeight">行間 <output id="lineHeightOut">1.9</output></label>
+    <input type="range" id="lineHeight" min="1.5" max="2.6" step="0.05" value="1.9">
+  </div>
+  <div class="row">
+    <label>書体</label>
+    <div class="choices" id="fontChoices">
+      <button data-font="mincho" aria-pressed="true">明朝</button>
+      <button data-font="gothic" aria-pressed="false">ゴシック</button>
+    </div>
+  </div>
+  <div class="row">
+    <label>背景</label>
+    <div class="choices" id="themeChoices">
+      <button data-theme="light" aria-pressed="true">白</button>
+      <button data-theme="sepia" aria-pressed="false">セピア</button>
+      <button data-theme="dark"  aria-pressed="false">夜</button>
+    </div>
+  </div>
+  <div class="row">
+    <label class="check"><input type="checkbox" id="autoReload" checked>ファイルの更新を自動で反映</label>
+  </div>
+  <p class="hint">
+    ルビ: <code>｜親文字《ルビ》</code> / <code>漢字《かんじ》</code><br>
+    傍点: <code>《《強調》》</code><br>
+    <code>←→</code> ページ送り / <code>[ ]</code> 版の前後 / <code>D</code> 差分 / <code>N P</code> 変更箇所
+  </p>
+</div>
+
+<main id="main">
+  <div class="stage">
+    <div class="viewport" id="viewport" data-mode="vertical" tabindex="0">
+      <div class="content" id="content" data-font="mincho" data-diff="off"></div>
+    </div>
+  </div>
+  <div class="empty" id="empty">
+    <h1>カクヨムテキストリーダー</h1>
+    <p>
+      原稿フォルダをこの画面にドロップしてください。<br>
+      「フォルダを開く」から選ぶこともできます。
+    </p>
+    <pre>drafts/
+├ EP01/   V1.md V2.md … V6.md
+├ EP02/   V1.md …
+└ current/  EP001.md EP002.md …</pre>
+  </div>
+  <div class="dropring"></div>
+</main>
+
+<footer>
+  <span class="live" id="liveState" data-on="false">—</span>
+  <span class="path" id="filePath"></span>
+  <span id="charCount">—</span>
+  <div class="progress"><i id="progressBar"></i></div>
+  <span class="pageno" id="pageNo">—</span>
+</footer>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const viewport = $("viewport");
+  const content  = $("content");
+  const empty    = $("empty");
+
+  /* ============================================================
+     設定の保存 / 復元
+     ============================================================ */
+  const DEFAULTS = {
+    mode: "vertical",
+    fontSize: 18,
+    lineHeight: 1.9,
+    font: "mincho",
+    theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
+    diff: false,
+    showDel: true,
+    autoReload: true,
+    ttsSpeaker: 2,
+    ttsSpeed: 1.2,
+    ttsVolume: 1,
+  };
+  const store = {
+    get(key, fallback) {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw === null ? fallback : JSON.parse(raw);
+      } catch { return fallback; }
+    },
+    set(key, value) {
+      try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* file:// 等で失敗しても無視 */ }
+    },
+  };
+  const settings = Object.assign({}, DEFAULTS, store.get("ktr.settings", {}));
+  const saveSettings = () => store.set("ktr.settings", settings);
+
+  /* ============================================================
+     テキスト読み込み（UTF-8 / Shift_JIS 自動判定）
+     ============================================================ */
+  function decodeText(buffer) {
+    const bytes = new Uint8Array(buffer);
+    if (bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
+      return new TextDecoder("utf-8").decode(bytes.subarray(3));
+    }
+    if (bytes[0] === 0xFF && bytes[1] === 0xFE) return new TextDecoder("utf-16le").decode(bytes.subarray(2));
+    if (bytes[0] === 0xFE && bytes[1] === 0xFF) return new TextDecoder("utf-16be").decode(bytes.subarray(2));
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      // 日本語のテキストファイルは Shift_JIS のことが多い
+      return new TextDecoder("shift_jis").decode(bytes);
+    }
+  }
+
+  /* ============================================================
+     カクヨム記法
+     ============================================================ */
+  const KANJI = "\\u3005\\u3006\\u3007\\u30F6\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF";
+  const BOUTEN_SRC = "《《[^》\\n]+》》";
+  const RUBY_EXPLICIT_SRC = "[｜|][^｜|《》\\n]+《[^《》\\n]+》";
+  const RUBY_AUTO_SRC = "[" + KANJI + "]+《[^《》\\n]+》";
+
+  const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]
+  ));
+
+  function inline(raw) {
+    let s = escapeHtml(raw);
+    // 傍点《《…》》は ルビ《…》より先に処理する
+    s = s.replace(new RegExp(BOUTEN_SRC, "g"), (m) => '<em class="bouten">' + m.slice(2, -2) + "</em>");
+    s = s.replace(/[｜|]([^｜|《》\n]+)《([^《》\n]+)》/g, "<ruby>$1<rt>$2</rt></ruby>");
+    s = s.replace(new RegExp("([" + KANJI + "]+)《([^《》\\n]+)》", "g"), "<ruby>$1<rt>$2</rt></ruby>");
+    return s;
+  }
+
+  // 差分を文字単位で取るとルビや傍点が途中で割れるので、記法のまとまりを 1 トークンとして扱う
+  const TOKEN_RE = new RegExp(BOUTEN_SRC + "|" + RUBY_EXPLICIT_SRC + "|" + RUBY_AUTO_SRC, "y");
+  function tokenize(line) {
+    const out = [];
+    let i = 0;
+    while (i < line.length) {
+      TOKEN_RE.lastIndex = i;
+      const m = TOKEN_RE.exec(line);
+      if (m && m[0]) { out.push(m[0]); i = TOKEN_RE.lastIndex; continue; }
+      const ch = String.fromCodePoint(line.codePointAt(i));
+      out.push(ch);
+      i += ch.length;
+    }
+    return out;
+  }
+
+  /* ============================================================
+     差分（共通部分を削ってから LCS）
+     ============================================================ */
+  const MAX_CELLS = 1_500_000;
+
+  function diff(a, b) {
+    const ops = [];
+    const push = (t, v) => {
+      const last = ops[ops.length - 1];
+      if (last && last.t === t) last.items.push(...v);
+      else ops.push({ t, items: v.slice() });
+    };
+
+    let s = 0;
+    while (s < a.length && s < b.length && a[s] === b[s]) s++;
+    let ea = a.length, eb = b.length;
+    while (ea > s && eb > s && a[ea - 1] === b[eb - 1]) { ea--; eb--; }
+
+    if (s > 0) push("eq", a.slice(0, s));
+    const A = a.slice(s, ea), B = b.slice(s, eb);
+    const n = A.length, m = B.length;
+
+    if (n && m && n * m <= MAX_CELLS) {
+      const w = m + 1;
+      const dp = new Int32Array((n + 1) * w);
+      for (let i = n - 1; i >= 0; i--) {
+        for (let j = m - 1; j >= 0; j--) {
+          dp[i * w + j] = A[i] === B[j]
+            ? dp[(i + 1) * w + j + 1] + 1
+            : Math.max(dp[(i + 1) * w + j], dp[i * w + j + 1]);
+        }
+      }
+      let i = 0, j = 0;
+      while (i < n && j < m) {
+        if (A[i] === B[j]) { push("eq", [A[i]]); i++; j++; }
+        else if (dp[(i + 1) * w + j] >= dp[i * w + j + 1]) { push("del", [A[i]]); i++; }
+        else { push("ins", [B[j]]); j++; }
+      }
+      if (i < n) push("del", A.slice(i));
+      if (j < m) push("ins", B.slice(j));
+    } else {
+      if (n) push("del", A);
+      if (m) push("ins", B);
+    }
+
+    if (ea < a.length) push("eq", a.slice(ea));
+    return ops;
+  }
+
+  function similarity(a, b) {
+    if (!a && !b) return 1;
+    const ops = diff(tokenize(a), tokenize(b));
+    let same = 0;
+    for (const op of ops) if (op.t === "eq") same += op.items.length;
+    const total = tokenize(a).length + tokenize(b).length;
+    return total ? (2 * same) / total : 1;
+  }
+
+  /* ============================================================
+     本文の組み立て
+     ============================================================ */
+  const splitLines = (text) => text.replace(/\r\n?/g, "\n").split("\n");
+
+  function lineHtml(line, isMarkdown) {
+    if (isMarkdown) {
+      const h = /^(#{1,3})\s+(.*)$/.exec(line);
+      if (h) return `<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`;
+      if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) return "<hr>";
+    }
+    if (line.trim() === "") return '<p class="blank"></p>';
+    return `<p>${inline(line)}</p>`;
+  }
+
+  function renderPlain(text, isMarkdown) {
+    content.innerHTML = splitLines(text).map((l) => lineHtml(l, isMarkdown)).join("");
+    return 0;
+  }
+
+  // 1 行のなかの変更を <ins>/<del> に展開する
+  function inlineDiffHtml(oldLine, newLine, showDel) {
+    const ops = diff(tokenize(oldLine), tokenize(newLine));
+    let html = "";
+    for (const op of ops) {
+      const text = op.items.join("");
+      if (op.t === "eq") html += inline(text);
+      else if (op.t === "ins") html += `<ins>${inline(text)}</ins>`;
+      else if (showDel) html += `<del>${inline(text)}</del>`;
+    }
+    return html;
+  }
+
+  function renderDiff(oldText, newText, isMarkdown, showDel) {
+    const ops = diff(splitLines(oldText), splitLines(newText));
+    const out = [];
+    let changes = 0;
+
+    const isBlank = (s) => s.trim() === "";
+
+    const emitPair = (dels, inss) => {
+      const pairs = Math.min(dels.length, inss.length);
+      let used = 0;
+      for (let k = 0; k < pairs; k++) {
+        if (isBlank(dels[k]) && isBlank(inss[k])) { out.push('<p class="blank"></p>'); used++; continue; }
+        if (similarity(dels[k], inss[k]) < 0.35) break;   // 別物なら並べて出す
+        const html = inlineDiffHtml(dels[k], inss[k], showDel);
+        // 削除を隠していると印が何も残らない行があるので、その行には目印を付ける
+        const cls = html.includes("<ins>") ? "chg" : "chg del-hidden";
+        out.push(`<p class="${cls}" data-chg="${changes++}">${html}</p>`);
+        used++;
+      }
+      const rest = dels.slice(used).filter((d) => !isBlank(d));
+      if (showDel) {
+        for (let k = used; k < dels.length; k++) {
+          // 空行の増減は「変更箇所」に数えない（送っても見るものがないため）
+          if (isBlank(dels[k])) { out.push('<p class="blank"></p>'); continue; }
+          out.push(`<p class="chg" data-chg="${changes++}"><del>${inline(dels[k])}</del></p>`);
+        }
+      } else if (rest.length) {
+        // 何行消えていても目印は 1 行にまとめる
+        out.push(`<p class="chg del-hidden" data-chg="${changes++}" title="削除された ${rest.length} 行"></p>`);
+      }
+      for (let k = used; k < inss.length; k++) {
+        if (isBlank(inss[k])) { out.push('<p class="blank"></p>'); continue; }
+        out.push(`<p class="chg" data-chg="${changes++}"><ins>${inline(inss[k])}</ins></p>`);
+      }
+    };
+
+    for (let i = 0; i < ops.length; i++) {
+      const op = ops[i];
+      if (op.t === "eq") { out.push(...op.items.map((l) => lineHtml(l, isMarkdown))); continue; }
+      if (op.t === "del" && ops[i + 1] && ops[i + 1].t === "ins") {
+        emitPair(op.items, ops[i + 1].items);
+        i++;
+      } else if (op.t === "del") {
+        emitPair(op.items, []);
+      } else {
+        emitPair([], op.items);
+      }
+    }
+
+    content.innerHTML = out.join("");
+    return changes;
+  }
+
+  /* ============================================================
+     ページ送り
+     ============================================================ */
+  const isVertical = () => viewport.dataset.mode === "vertical";
+
+  function lineStep() {
+    const lh = parseFloat(getComputedStyle(content).lineHeight);
+    return Number.isFinite(lh) && lh > 0 ? lh : 32;
+  }
+  function pageStep() {
+    const step = lineStep();
+    const span = isVertical() ? viewport.clientWidth : viewport.clientHeight;
+    return Math.max(1, Math.floor(span / step)) * step;
+  }
+
+  // vertical-rl の scrollLeft は現行仕様では 0 〜 -(scrollWidth-clientWidth)（負方向）。
+  // 実測して符号を決め、以降はこの符号で読み書きする。
+  let vSign = -1;
+  function probeScrollSign() {
+    if (viewport.scrollWidth <= viewport.clientWidth) return;
+    const keep = viewport.scrollLeft;
+    viewport.scrollLeft = -1;
+    vSign = viewport.scrollLeft < 0 ? -1 : 1;
+    viewport.scrollLeft = keep;
+  }
+
+  const scrollPos = () => isVertical() ? Math.abs(viewport.scrollLeft) : viewport.scrollTop;
+  const scrollMax = () => isVertical()
+    ? Math.max(0, viewport.scrollWidth - viewport.clientWidth)
+    : Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+
+  function scrollToPos(pos, smooth) {
+    const p = Math.min(Math.max(pos, 0), scrollMax());
+    const opts = { behavior: smooth ? "smooth" : "auto" };
+    if (isVertical()) viewport.scrollTo(Object.assign({ left: vSign * p }, opts));
+    else              viewport.scrollTo(Object.assign({ top: p }, opts));
+  }
+
+  function turnPage(dir) {
+    const step = pageStep();
+    scrollToPos(Math.round(scrollPos() / step) * step + dir * step, true);
+  }
+
+  // 要素の先頭がページ頭に来るようにスクロールする
+  function scrollToElement(el) {
+    const vr = viewport.getBoundingClientRect();
+    const er = el.getBoundingClientRect();
+    const offset = isVertical()
+      ? scrollPos() + (vr.right - er.right)
+      : scrollPos() + (er.top - vr.top);
+    const step = pageStep();
+    scrollToPos(Math.max(0, Math.floor(offset / step) * step), true);
+  }
+
+  /* ============================================================
+     進捗表示
+     ============================================================ */
+  let charTotal = 0;
+  function updateProgress() {
+    const max = scrollMax();
+    const pos = Math.min(scrollPos(), max);
+    $("progressBar").style.width = (max > 0 ? (pos / max) * 100 : (charTotal ? 100 : 0)) + "%";
+    if (!charTotal) { $("pageNo").textContent = "—"; return; }
+    // 端数のページも 1 ページとして数える（最終行が切れたまま「最後」と表示しない）
+    const step  = pageStep();
+    const pages = max > 0 ? Math.ceil(max / step) + 1 : 1;
+    const cur   = pos >= max - 1 ? pages : Math.min(pages, Math.floor(pos / step) + 1);
+    $("pageNo").textContent = `${cur} / ${pages} ページ`;
+  }
+
+  /* ============================================================
+     ライブラリ（フォルダの中身）
+     ============================================================ */
+  let library = [];        // [{ key, label, num, versions: [{label, kind, entry}] }]
+  let source = null;       // 'fsa' | 'input'
+  let rootHandle = null;
+  let rootName = "";
+  let epIndex = 0, verIndex = 0;
+
+  const isTextFile = (name) => /\.(md|markdown|txt|text)$/i.test(name);
+  const stripExt = (name) => name.replace(/\.[^.]+$/, "");
+  const natCmp = (a, b) => a.localeCompare(b, "ja", { numeric: true, sensitivity: "base" });
+  const isCurrentDir = (name) => /^(current|latest|最新|最新版|final)$/i.test(name);
+
+  async function scanHandle(dirHandle) {
+    const dirs = new Map();
+    async function walk(handle, path, depth) {
+      if (depth > 3) return;
+      for await (const [name, h] of handle.entries()) {
+        if (h.kind === "directory") {
+          await walk(h, path ? path + "/" + name : name, depth + 1);
+        } else if (isTextFile(name)) {
+          if (!dirs.has(path)) dirs.set(path, []);
+          dirs.get(path).push({ name, path: (path ? path + "/" : "") + name, getFile: () => h.getFile() });
+        }
+      }
+    }
+    await walk(dirHandle, "", 0);
+    return dirs;
+  }
+
+  function scanFileList(files) {
+    const dirs = new Map();
+    for (const file of files) {
+      if (!isTextFile(file.name)) continue;
+      const rel = (file.webkitRelativePath || file.name).split("/");
+      rel.shift();                         // 先頭はルートフォルダ名
+      const name = rel.pop();
+      const path = rel.join("/");
+      if (!dirs.has(path)) dirs.set(path, []);
+      dirs.get(path).push({ name, path: (path ? path + "/" : "") + name, getFile: async () => file });
+    }
+    return dirs;
+  }
+
+  function buildLibrary(dirs) {
+    const eps = new Map();
+    const currents = [];
+
+    for (const [path, files] of dirs) {
+      const base = path.split("/").pop() || "";
+      if (isCurrentDir(base)) { currents.push(...files); continue; }
+
+      const m = /^ep[\s_\-]*0*(\d+)/i.exec(base);
+      const num = m ? Number(m[1]) : null;
+      const key = num !== null ? "n" + num : "d:" + path;
+      if (!eps.has(key)) eps.set(key, { key, num, label: base || "本文", versions: [] });
+      const ep = eps.get(key);
+      for (const f of files.slice().sort((a, b) => natCmp(a.name, b.name))) {
+        ep.versions.push({ label: stripExt(f.name), kind: "v", entry: f });
+      }
+    }
+
+    for (const f of currents.sort((a, b) => natCmp(a.name, b.name))) {
+      const m = /0*(\d+)/.exec(stripExt(f.name));
+      const key = m ? "n" + Number(m[1]) : null;
+      if (key && eps.has(key)) {
+        eps.get(key).versions.push({ label: "Current", kind: "current", entry: f });
+      } else {
+        const k = key || "c:" + f.name;
+        if (!eps.has(k)) eps.set(k, { key: k, num: m ? Number(m[1]) : null, label: stripExt(f.name), versions: [] });
+        eps.get(k).versions.push({ label: "Current", kind: "current", entry: f });
+      }
+    }
+
+    return [...eps.values()]
+      .filter((ep) => ep.versions.length)
+      .sort((a, b) => {
+        if (a.num !== null && b.num !== null) return a.num - b.num;
+        if (a.num !== null) return -1;
+        if (b.num !== null) return 1;
+        return natCmp(a.label, b.label);
+      });
+  }
+
+  async function rescan() {
+    const dirs = source === "fsa" ? await scanHandle(rootHandle) : scanFileList($("dirInput").files);
+    return buildLibrary(dirs);
+  }
+
+  const librarySignature = (lib) =>
+    lib.map((ep) => ep.label + ":" + ep.versions.map((v) => v.label).join(",")).join("|");
+
+  /* ============================================================
+     フォルダを開く
+     ============================================================ */
+  async function useLibrary(lib, keep) {
+    if (!lib.length) {
+      alert("読み込めるテキストファイル（.md / .txt）が見つかりませんでした。");
+      return;
+    }
+    library = lib;
+    epIndex  = keep ? Math.max(0, library.findIndex((e) => e.label === keep.ep)) : 0;
+    const versions = library[epIndex].versions;
+    verIndex = keep ? versions.findIndex((v) => v.label === keep.ver) : versions.length - 1;
+    if (verIndex < 0) verIndex = versions.length - 1;
+    fillEpisodeSelect();
+    await showSelection(false);
+  }
+
+  async function openWithPicker() {
+    if (window.showDirectoryPicker) {
+      try {
+        const handle = await window.showDirectoryPicker({ id: "ktr-drafts", mode: "read" });
+        rootHandle = handle;
+        rootName = handle.name;
+        source = "fsa";
+        await useLibrary(buildLibrary(await scanHandle(handle)), null);
+        return;
+      } catch (err) {
+        if (err && err.name === "AbortError") return;      // ユーザーが閉じただけ
+        // 非対応・file:// で拒否された場合は input にフォールバック
+      }
+    }
+    $("dirInput").click();
+  }
+
+  $("dirInput").addEventListener("change", async (e) => {
+    const files = e.target.files;
+    if (!files || !files.length) return;
+    source = "input";
+    rootHandle = null;
+    rootName = (files[0].webkitRelativePath || "").split("/")[0] || "";
+    const keep = library.length ? currentKeep() : null;
+    await useLibrary(buildLibrary(scanFileList(files)), keep);
+  });
+
+  $("openBtn").addEventListener("click", openWithPicker);
+
+  const currentKeep = () => ({
+    ep: library[epIndex] && library[epIndex].label,
+    ver: library[epIndex] && library[epIndex].versions[verIndex] && library[epIndex].versions[verIndex].label,
+  });
+
+  /* ---- ドラッグ＆ドロップ ---- */
+  let dragDepth = 0;
+  addEventListener("dragenter", (e) => { e.preventDefault(); if (++dragDepth === 1) document.body.classList.add("dragging"); });
+  addEventListener("dragover",  (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
+  addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove("dragging"); } });
+  addEventListener("drop", async (e) => {
+    e.preventDefault();
+    dragDepth = 0;
+    document.body.classList.remove("dragging");
+    const item = e.dataTransfer.items && e.dataTransfer.items[0];
+    if (!item) return;
+
+    if (item.getAsFileSystemHandle) {
+      try {
+        const handle = await item.getAsFileSystemHandle();
+        if (handle && handle.kind === "directory") {
+          rootHandle = handle; rootName = handle.name; source = "fsa";
+          await useLibrary(buildLibrary(await scanHandle(handle)), null);
+          return;
+        }
+      } catch { /* 下の entry 方式へ */ }
+    }
+    const entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
+    if (entry && entry.isDirectory) {
+      rootName = entry.name; source = "input";
+      const files = await readEntryTree(entry);
+      await useLibrary(buildLibrary(scanDroppedFiles(files)), null);
+    } else {
+      alert("フォルダをドロップしてください。");
+    }
+  });
+
+  function readEntryTree(dirEntry) {
+    const files = [];
+    const walk = (entry, path, depth) => new Promise((resolve) => {
+      if (entry.isFile) {
+        if (!isTextFile(entry.name)) return resolve();
+        entry.file((f) => { files.push({ file: f, path: path }); resolve(); }, resolve);
+        return;
+      }
+      if (depth > 3) return resolve();
+      const reader = entry.createReader();
+      const all = [];
+      const readMore = () => reader.readEntries(async (batch) => {
+        if (!batch.length) {
+          await Promise.all(all.map((c) => walk(c, path ? path + "/" + entry.name : entry.name, depth + 1)));
+          return resolve();
+        }
+        all.push(...batch);
+        readMore();
+      }, resolve);
+      readMore();
+    });
+    return walk(dirEntry, "", 0).then(() => files);
+  }
+
+  function scanDroppedFiles(items) {
+    const dirs = new Map();
+    for (const { file, path } of items) {
+      const rel = path.split("/").slice(1).join("/");   // 先頭のルートフォルダ名を除く
+      if (!dirs.has(rel)) dirs.set(rel, []);
+      dirs.get(rel).push({ name: file.name, path: (rel ? rel + "/" : "") + file.name, getFile: async () => file });
+    }
+    return dirs;
+  }
+
+  /* ============================================================
+     選択 UI
+     ============================================================ */
+  function fillEpisodeSelect() {
+    const sel = $("epSelect");
+    sel.innerHTML = library.map((ep, i) => {
+      const n = ep.versions.filter((v) => v.kind === "v").length;   // Current は版数に数えない
+      return `<option value="${i}">${escapeHtml(ep.label)}（${n}版）</option>`;
+    }).join("");
+    sel.value = String(epIndex);
+    sel.disabled = false;
+    fillVersionSelect();
+  }
+
+  function fillVersionSelect() {
+    const versions = library[epIndex].versions;
+    const sel = $("verSelect");
+    sel.innerHTML = versions.map((v, i) =>
+      `<option value="${i}">${escapeHtml(v.label)}${v.kind === "current" ? "（最新）" : ""}</option>`).join("");
+    sel.value = String(verIndex);
+    sel.disabled = false;
+    $("prevVer").disabled = verIndex <= 0;
+    $("nextVer").disabled = verIndex >= versions.length - 1;
+    $("diffBtn").disabled = versions.length < 2;
+
+    const base = $("baseSelect");
+    base.innerHTML = ['<option value="auto">自動（1つ前の版）</option>']
+      .concat(versions.map((v, i) => i === verIndex ? "" :
+        `<option value="${i}">${escapeHtml(v.label)}</option>`)).join("");
+    base.value = baseChoice;
+  }
+
+  let baseChoice = "auto";
+
+  $("epSelect").addEventListener("change", async (e) => {
+    epIndex = Number(e.target.value);
+    verIndex = library[epIndex].versions.length - 1;
+    baseChoice = "auto";
+    fillVersionSelect();
+    await showSelection(false);
+  });
+  $("verSelect").addEventListener("change", async (e) => {
+    verIndex = Number(e.target.value);
+    baseChoice = "auto";
+    fillVersionSelect();
+    await showSelection(true);
+  });
+  $("prevVer").addEventListener("click", () => stepVersion(-1));
+  $("nextVer").addEventListener("click", () => stepVersion(+1));
+  async function stepVersion(d) {
+    const versions = library[epIndex].versions;
+    const next = verIndex + d;
+    if (next < 0 || next >= versions.length) return;
+    verIndex = next;
+    baseChoice = "auto";
+    fillVersionSelect();
+    await showSelection(true);
+  }
+  $("baseSelect").addEventListener("change", async (e) => {
+    baseChoice = e.target.value;
+    await showSelection(true);
+  });
+
+  /* ============================================================
+     表示
+     ============================================================ */
+  let shownText = "";
+  let shownStamp = "";
+  let changeEls = [];
+  let changeCursor = -1;
+  let pendingChangeCursor = null;   // 再描画をまたいで変更箇所の位置を引き継ぐ
+
+  async function readEntry(entry) {
+    const file = await entry.getFile();
+    return { text: decodeText(await file.arrayBuffer()), stamp: file.size + ":" + file.lastModified };
+  }
+
+  async function showSelection(keepRatio) {
+    const ep = library[epIndex];
+    const cur = ep.versions[verIndex];
+    const ratio = keepRatio && scrollMax() > 0 ? scrollPos() / scrollMax() : 0;
+
+    let read;
+    try {
+      read = await readEntry(cur.entry);
+    } catch (err) {
+      setLive(false, "読み込み失敗 — 再度フォルダを開いてください");
+      return;
+    }
+    shownText = read.text;
+    shownStamp = read.stamp;
+
+    const isMarkdown = /\.(md|markdown)$/i.test(cur.entry.name);
+    let changes = 0;
+    let note = "";
+
+    if (settings.diff && ep.versions.length > 1) {
+      let baseIdx = baseChoice === "auto" ? verIndex - 1 : Number(baseChoice);
+      if (baseIdx < 0) baseIdx = -1;
+      if (baseIdx >= 0) {
+        const baseRead = await readEntry(ep.versions[baseIdx].entry);
+        let baseText = baseRead.text;
+        // Current は最新版と中身が同じことが多い。その場合は 1 つ手前と比べる。
+        if (baseChoice === "auto" && baseText === shownText && baseIdx > 0) {
+          const alt = ep.versions[baseIdx - 1];
+          note = `${ep.versions[baseIdx].label} と同一のため ${alt.label} と比較`;
+          baseIdx -= 1;
+          baseText = (await readEntry(alt.entry)).text;
+        }
+        changes = renderDiff(baseText, shownText, isMarkdown, settings.showDel);
+        if (!note) note = `${ep.versions[baseIdx].label} → ${cur.label}`;
+      } else {
+        renderPlain(shownText, isMarkdown);
+        note = "最初の版のため比較対象なし";
+      }
+    } else {
+      renderPlain(shownText, isMarkdown);
+    }
+
+    content.dataset.diff = settings.diff ? "on" : "off";
+    syncDiffUI();
+    changeEls = [...content.querySelectorAll("[data-chg]")];
+    changeCursor = (pendingChangeCursor !== null && pendingChangeCursor < changeEls.length)
+      ? pendingChangeCursor : -1;
+    pendingChangeCursor = null;
+    $("changeInfo").hidden = !settings.diff;
+    syncChangeInfo();
+    $("diffNote").textContent = note;
+    $("prevChange").disabled = $("nextChange").disabled = changes === 0;
+
+    charTotal = shownText.replace(/\s/g, "").length;
+    $("charCount").textContent = charTotal.toLocaleString("ja-JP") + "文字";
+    $("filePath").textContent = (rootName ? rootName + "/" : "") + cur.entry.path;
+    document.title = `${ep.label} ${cur.label} — カクヨムテキストリーダー`;
+
+    empty.hidden = true;
+    $("ttsBtn").disabled = false;
+    ttsOnContentChanged();
+    requestAnimationFrame(() => {
+      probeScrollSign();
+      if (keepRatio) scrollToPos(ratio * scrollMax(), false);
+      else scrollToPos(0, false);
+      updateProgress();
+      viewport.focus();
+    });
+    setLive(source === "fsa" && settings.autoReload, null);
+  }
+
+  function setLive(on, message) {
+    const el = $("liveState");
+    el.dataset.on = String(!!on);
+    el.textContent = message || (on ? "自動更新中" : (library.length ? "手動更新" : "—"));
+    el.title = on
+      ? "ファイルの変更を検出すると自動で読み直します"
+      : "「フォルダを開く」で開き直すと最新になります";
+  }
+
+  /* ---- 変更箇所の移動 ---- */
+  function syncChangeInfo() {
+    $("changeTotal").textContent = String(changeEls.length);
+    $("changeNo").max = String(changeEls.length);
+    $("changeNo").value = changeCursor >= 0 ? String(changeCursor + 1) : "";
+  }
+
+  // 0 始まりの番号で直接移動する
+  function goChangeTo(i) {
+    if (!changeEls.length) return;
+    changeCursor = Math.min(Math.max(i, 0), changeEls.length - 1);
+    for (const el of changeEls) el.removeAttribute("data-focus");
+    const el = changeEls[changeCursor];
+    el.dataset.focus = "true";
+    scrollToElement(el);
+    syncChangeInfo();
+  }
+
+  // いま画面の先頭に一番近い変更箇所を返す
+  function nearestChange() {
+    if (!changeEls.length) return -1;
+    const vr = viewport.getBoundingClientRect();
+    let best = -1, bestD = Infinity;
+    changeEls.forEach((el, i) => {
+      const r = el.getBoundingClientRect();
+      const d = isVertical() ? Math.abs(r.right - vr.right) : Math.abs(r.top - vr.top);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    return best;
+  }
+
+  function gotoChange(d) {
+    if (!changeEls.length) return;
+    goChangeTo((changeCursor + d + changeEls.length) % changeEls.length);
+  }
+
+  const applyChangeNo = () => {
+    const n = parseInt($("changeNo").value, 10);
+    if (Number.isFinite(n)) goChangeTo(n - 1);
+    else syncChangeInfo();
+  };
+  $("changeNo").addEventListener("change", applyChangeNo);
+  $("changeNo").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); applyChangeNo(); $("changeNo").blur(); }
+  });
+  $("nextChange").addEventListener("click", () => gotoChange(+1));
+  $("prevChange").addEventListener("click", () => gotoChange(-1));
+
+  /* ---- 差分の切替 ---- */
+  $("diffBtn").addEventListener("click", async () => {
+    settings.diff = !settings.diff;
+    saveSettings();
+    syncDiffUI();
+    await showSelection(true);
+  });
+  $("showDel").addEventListener("change", async (e) => {
+    settings.showDel = e.target.checked;
+    saveSettings();
+    const hadCursor = changeCursor >= 0;
+    await showSelection(true);
+    // 削除を隠すと目印がまとまって総数が変わるので、番号ではなく表示位置で戻す
+    if (hadCursor) {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const i = nearestChange();
+        if (i >= 0) goChangeTo(i);
+      }));
+    }
+  });
+  function syncDiffUI() {
+    $("diffBtn").setAttribute("aria-pressed", String(settings.diff));
+    $("diffbar").hidden = !settings.diff || !library.length;
+    $("showDel").checked = settings.showDel;
+  }
+
+  /* ============================================================
+     ファイル更新の監視
+     ============================================================ */
+  let polling = false;
+  async function poll() {
+    if (polling || !library.length || !settings.autoReload) return;
+    polling = true;
+    try {
+      const cur = library[epIndex] && library[epIndex].versions[verIndex];
+      if (cur && source === "fsa") {
+        const file = await cur.entry.getFile();
+        const stamp = file.size + ":" + file.lastModified;
+        if (stamp !== shownStamp) await showSelection(true);
+      } else if (cur) {
+        // input 方式の File は開いた時点のスナップショット。
+        // 実際に読み直し、書き換わっていれば例外になるのでそれを合図にする。
+        const read = await readEntry(cur.entry);
+        if (read.text !== shownText) await showSelection(true);
+      }
+      if (source === "fsa") {
+        const lib = await rescan();
+        if (librarySignature(lib) !== librarySignature(library)) {
+          const keep = currentKeep();
+          library = lib;
+          epIndex = Math.max(0, library.findIndex((e) => e.label === keep.ep));
+          const versions = library[epIndex].versions;
+          const found = versions.findIndex((v) => v.label === keep.ver);
+          verIndex = found >= 0 ? found : versions.length - 1;
+          fillEpisodeSelect();
+          await showSelection(true);
+        }
+      }
+    } catch (err) {
+      // input 方式ではファイルが書き換わると読み取りに失敗する
+      if (source === "input") setLive(false, "更新あり — 開き直してください");
+    } finally {
+      polling = false;
+    }
+  }
+  setInterval(poll, 2500);
+
+  /* ============================================================
+     操作
+     ============================================================ */
+  viewport.addEventListener("scroll", updateProgress, { passive: true });
+
+  // 縦書きのときは縦ホイールを行方向のスクロールへ流す
+  viewport.addEventListener("wheel", (e) => {
+    if (!isVertical() || e.ctrlKey) return;
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    e.preventDefault();
+    viewport.scrollBy({ left: vSign * e.deltaY, behavior: "auto" });
+  }, { passive: false });
+
+  addEventListener("keydown", (e) => {
+    if (e.target.matches("input, select, textarea")) return;
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    const vertical = isVertical();
+    switch (e.key) {
+      case "ArrowLeft":  turnPage(vertical ? +1 : -1); break;
+      case "ArrowRight": turnPage(vertical ? -1 : +1); break;
+      case "ArrowUp":    turnPage(-1); break;
+      case "ArrowDown":  turnPage(+1); break;
+      case "PageDown": case " ": turnPage(e.shiftKey ? -1 : +1); break;
+      case "PageUp":     turnPage(-1); break;
+      case "Home":       scrollToPos(0, true); break;
+      case "End":        scrollToPos(scrollMax(), true); break;
+      case "[":          stepVersion(-1); break;
+      case "]":          stepVersion(+1); break;
+      case "n": case "N": gotoChange(+1); break;
+      case "p": case "P": gotoChange(-1); break;
+      case "d": case "D": if (!$("diffBtn").disabled) $("diffBtn").click(); break;
+      case "v": case "V": if (!$("ttsBtn").disabled) ttsToggle(); break;
+      case "Escape":     closeSettings(); return;
+      default: return;
+    }
+    e.preventDefault();
+  });
+
+  /* ============================================================
+     読み上げ（VOICEVOX）
+     VOICEVOX 本体を起動しておくと 127.0.0.1:50021 で API が開く。
+     ============================================================ */
+  const VV = "http://127.0.0.1:50021";
+  const ttsHighlight = (typeof Highlight !== "undefined" && window.CSS && CSS.highlights)
+    ? new Highlight() : null;
+  if (ttsHighlight) CSS.highlights.set("tts-current", ttsHighlight);
+
+  const ttsAudio = new Audio();
+  let ttsAtoms = [], ttsBlocks = [], ttsText = "", ttsSegs = [];
+  let ttsIndex = -1, ttsPlaying = false, ttsToken = 0;
+  let ttsCache = new Map();          // 文番号 -> Promise<blob URL>
+
+  // 本文を読み上げ用の文字列にならす。
+  // ルビは「読み」の方を採用し、削除された文は読まない。
+  function ttsCollect() {
+    const atoms = [], blocks = [];
+    let pos = 0;
+    const walk = (node) => {
+      if (node.nodeType === 3) {
+        const t = node.nodeValue;
+        if (t) { atoms.push({ kind: "text", text: t, node, start: pos }); pos += t.length; }
+        return;
+      }
+      if (node.nodeType !== 1) return;
+      const tag = node.tagName;
+      if (tag === "DEL") return;
+      if (tag === "RUBY") {
+        const rt = node.querySelector("rt");
+        const reading = (rt ? rt.textContent : node.textContent) || "";
+        atoms.push({ kind: "ruby", text: reading, el: node, start: pos });
+        pos += reading.length;
+        return;
+      }
+      const isBlock = /^(P|H1|H2|H3)$/.test(tag);
+      const from = pos;
+      for (const c of node.childNodes) walk(c);
+      if (isBlock) {
+        atoms.push({ kind: "break", text: "\n", el: node, start: pos });
+        pos += 1;
+        blocks.push({ el: node, start: from, end: pos });
+      }
+    };
+    walk(content);
+    ttsAtoms = atoms;
+    ttsBlocks = blocks;
+    ttsText = atoms.map((a) => a.text).join("");
+    ttsSegs = ttsSegment(ttsText);
+  }
+
+  function ttsSegment(text) {
+    const out = [];
+    const re = /[。．！？!?\n]+[」』）\)】］〉》]*/g;
+    let start = 0, m;
+    while ((m = re.exec(text))) {
+      const end = m.index + m[0].length;
+      if (text.slice(start, end).trim()) out.push({ start, end });
+      start = end;
+    }
+    if (text.slice(start).trim()) out.push({ start, end: text.length });
+    return out;
+  }
+
+  const ttsSpeech = (i) => ttsText.slice(ttsSegs[i].start, ttsSegs[i].end)
+    .replace(/[《》｜|]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  function ttsRange(i) {
+    const seg = ttsSegs[i];
+    let end = seg.end;
+    while (end > seg.start && ttsText[end - 1] === "\n") end--;   // 末尾の改行は囲まない
+    const at = (p) => {
+      for (const a of ttsAtoms) if (p < a.start + a.text.length) return { a, offset: p - a.start };
+      const last = ttsAtoms[ttsAtoms.length - 1];
+      return { a: last, offset: last.text.length };
+    };
+    const r = document.createRange();
+    const s = at(seg.start), e = at(end);
+    if (s.a.kind === "text") r.setStart(s.a.node, Math.min(s.offset, s.a.node.nodeValue.length));
+    else r.setStartBefore(s.a.el);
+    if (e.a.kind === "text") r.setEnd(e.a.node, Math.min(e.offset, e.a.node.nodeValue.length));
+    else if (e.a.kind === "break") r.setEnd(e.a.el, e.a.el.childNodes.length);
+    else r.setEndAfter(e.a.el);
+    return r;
+  }
+
+  async function ttsSynth(i, token) {
+    const text = ttsSpeech(i);
+    if (!text) return null;
+    const speaker = settings.ttsSpeaker;
+    const qRes = await fetch(VV + "/audio_query?text=" + encodeURIComponent(text) + "&speaker=" + speaker, { method: "POST" });
+    if (!qRes.ok) throw new Error("audio_query " + qRes.status);
+    const q = await qRes.json();
+    q.speedScale = settings.ttsSpeed;
+    const res = await fetch(VV + "/synthesis?speaker=" + speaker, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(q),
+    });
+    if (!res.ok) throw new Error("synthesis " + res.status);
+    const blob = await res.blob();
+    if (token !== ttsToken) return null;
+    return URL.createObjectURL(blob);
+  }
+
+  // 合成は 1 文あたり 1 秒ほどかかるので、次の文を先に作っておく
+  function ttsPrefetch(i) {
+    if (i < 0 || i >= ttsSegs.length || ttsCache.has(i)) return;
+    ttsCache.set(i, ttsSynth(i, ttsToken).catch(() => null));
+  }
+
+  function ttsClearCache() {
+    ttsToken++;
+    for (const p of ttsCache.values()) {
+      Promise.resolve(p).then((u) => { if (u) URL.revokeObjectURL(u); }).catch(() => {});
+    }
+    ttsCache = new Map();
+  }
+
+  function ttsShow(i) {
+    const r = ttsRange(i);
+    if (ttsHighlight) { ttsHighlight.clear(); ttsHighlight.add(r); }
+    const vr = viewport.getBoundingClientRect();
+    const er = r.getBoundingClientRect();
+    const margin = lineStep() * 3;  // 読んでいる文の前後に 3 行ぶん残す
+    const outside = isVertical()
+      ? (er.right > vr.right - margin || er.left < vr.left + margin)
+      : (er.bottom > vr.bottom - margin || er.top < vr.top + margin);
+    if (outside && er.width + er.height > 0) {
+      // 文の先頭が画面の端から margin だけ内側に来る位置。
+      // 縦書きは右が先頭、横書きは上が先頭なので符号が逆になる。
+      const lead = isVertical() ? scrollPos() + (vr.right - er.right) : scrollPos() + (er.top - vr.top);
+      const target = isVertical() ? lead + margin : lead - margin;
+      const step = lineStep();      // ページ単位で丸めると余裕が消えるので行単位で送る
+      scrollToPos(Math.max(0, Math.round(target / step) * step), true);
+    }
+    $("ttsStatus").textContent = (i + 1) + " / " + ttsSegs.length + " 文";
+  }
+
+  async function ttsPlayAt(i) {
+    if (i < 0 || i >= ttsSegs.length) { ttsStop(); return; }
+    ttsIndex = i;
+    ttsPlaying = true;
+    ttsSyncUI();
+    ttsShow(i);
+    ttsPrefetch(i);
+    ttsPrefetch(i + 1);
+    const token = ttsToken;
+    let url = null;
+    try { url = await ttsCache.get(i); }
+    catch { url = null; }
+    if (!ttsPlaying || token !== ttsToken || ttsIndex !== i) return;
+    if (!url) {
+      if (!(await ttsCheck())) { $("ttsNote").textContent = "VOICEVOX との通信が切れました"; ttsStop(); return; }
+      ttsPlayAt(i + 1);                       // 記号だけの文などは飛ばす
+      return;
+    }
+    ttsAudio.src = url;
+    ttsAudio.volume = settings.ttsVolume;
+    try { await ttsAudio.play(); }
+    catch { ttsPlaying = false; ttsSyncUI(); }
+  }
+
+  ttsAudio.addEventListener("ended", () => { if (ttsPlaying) ttsPlayAt(ttsIndex + 1); });
+
+  function ttsStop() {
+    ttsPlaying = false;
+    ttsAudio.pause();
+    ttsAudio.removeAttribute("src");
+    ttsIndex = -1;
+    if (ttsHighlight) ttsHighlight.clear();
+    $("ttsStatus").textContent = "";
+    ttsSyncUI();
+  }
+
+  function ttsSyncUI() {
+    $("ttsPlay").textContent = ttsPlaying ? "一時停止" : "再生";
+    $("ttsBtn").setAttribute("aria-pressed", String(!$("ttsbar").hidden));
+  }
+
+  async function ttsCheck() {
+    try {
+      const r = await fetch(VV + "/version", { cache: "no-store" });
+      return r.ok;
+    } catch { return false; }
+  }
+
+  async function ttsLoadSpeakers() {
+    const sel = $("ttsSpeaker");
+    if (sel.options.length) return true;
+    try {
+      const list = await (await fetch(VV + "/speakers")).json();
+      sel.innerHTML = list.map((s) =>
+        '<optgroup label="' + escapeHtml(s.name) + '">' +
+        s.styles.map((t) => '<option value="' + t.id + '">' + escapeHtml(s.name) + " " + escapeHtml(t.name) + "</option>").join("") +
+        "</optgroup>").join("");
+      sel.value = String(settings.ttsSpeaker);
+      if (!sel.value) { sel.selectedIndex = 0; settings.ttsSpeaker = Number(sel.value); saveSettings(); }
+      return true;
+    } catch { return false; }
+  }
+
+  // dictionary.json の語を VOICEVOX のユーザー辞書へ反映する。
+  // すでに同じ読みで入っていれば触らない。VOICEVOX 側で自分が足した語は消さない。
+  async function ttsSyncDict(force) {
+    let words;
+    try {
+      const res = await fetch("dictionary.json", { cache: "no-store" });
+      if (!res.ok) return;
+      words = (await res.json()).words;
+      if (!Array.isArray(words)) return;
+    } catch { return; }
+
+    let added = 0, updated = 0;
+    try {
+      const dict = await (await fetch(VV + "/user_dict")).json();
+      const bySurface = new Map();
+      for (const [uuid, w] of Object.entries(dict)) bySurface.set(w.surface, { uuid, w });
+
+      for (const entry of words) {
+        const surface = (entry.surface || "").trim();
+        const yomi = (entry.pronunciation || "").trim();
+        if (!surface || !yomi) continue;
+        const accent = Number(entry.accentType) || 0;
+        // priority は既定の 5 だと形態素解析の分割に負けて辞書が使われない。
+        // 例:「六体」は 5 では リクタイ、9 以上で ロクタイ になる。
+        const prio = entry.priority == null ? 10 : Number(entry.priority);
+        const q = new URLSearchParams({
+          surface, pronunciation: yomi, accent_type: String(accent), priority: String(prio),
+        });
+        const hit = bySurface.get(surface);
+        if (!hit) {
+          if ((await fetch(VV + "/user_dict_word?" + q, { method: "POST" })).ok) added++;
+        } else if (hit.w.yomi !== yomi || hit.w.accent_type !== accent || hit.w.priority !== prio) {
+          if ((await fetch(VV + "/user_dict_word/" + hit.uuid + "?" + q, { method: "PUT" })).ok) updated++;
+        }
+      }
+    } catch { return; }
+
+    if (added || updated || force) {
+      ttsClearCache();                    // 読みが変わるので合成し直す
+      if (added || updated) $("ttsNote").textContent = "辞書を登録しました（追加 " + added + " / 更新 " + updated + "）";
+    }
+  }
+
+  /* ---- 辞書の編集 ---- */
+  let dictDoc = null;        // dictionary.json の中身まるごと（説明文を保つため）
+  let dictLoaded = [];       // 読み込んだ時点の語。保存時に消えた語を見つけるのに使う
+
+  async function dictLoad() {
+    try {
+      const res = await fetch("dictionary.json", { cache: "no-store" });
+      dictDoc = res.ok ? await res.json() : {};
+    } catch { dictDoc = {}; }
+    if (!Array.isArray(dictDoc.words)) dictDoc.words = [];
+    dictLoaded = dictDoc.words.map((w) => (w.surface || "").trim()).filter(Boolean);
+    dictRender(dictDoc.words);
+  }
+
+  function dictRender(words) {
+    $("dictRows").innerHTML = words.map((w) =>
+      '<div class="dict-row">' +
+      '<input class="d-surface" value="' + escapeHtml(w.surface || "") + '">' +
+      '<input class="d-yomi" value="' + escapeHtml(w.pronunciation || "") + '">' +
+      '<input class="d-accent" type="number" min="0" step="1" value="' + (Number(w.accentType) || 0) + '">' +
+      '<button class="d-del" title="この語を削除">×</button>' +
+      "</div>").join("");
+  }
+
+  const dictCollect = () => [...$("dictRows").querySelectorAll(".dict-row")]
+    .map((r) => ({
+      surface: r.querySelector(".d-surface").value.trim(),
+      pronunciation: r.querySelector(".d-yomi").value.trim(),
+      accentType: Number(r.querySelector(".d-accent").value) || 0,
+    }))
+    .filter((w) => w.surface && w.pronunciation);
+
+  $("dictRows").addEventListener("click", (e) => {
+    const b = e.target.closest(".d-del");
+    if (b) b.closest(".dict-row").remove();
+  });
+
+  $("dictAdd").addEventListener("click", () => {
+    $("dictRows").insertAdjacentHTML("beforeend",
+      '<div class="dict-row">' +
+      '<input class="d-surface"><input class="d-yomi">' +
+      '<input class="d-accent" type="number" min="0" step="1" value="0">' +
+      '<button class="d-del" title="この語を削除">×</button></div>');
+    const rows = $("dictRows").querySelectorAll(".dict-row");
+    rows[rows.length - 1].querySelector(".d-surface").focus();
+  });
+
+  $("dictSave").addEventListener("click", async () => {
+    const words = dictCollect();
+    const note = $("dictNote");
+    dictDoc = dictDoc || {};
+    dictDoc.words = words;
+    try {
+      const res = await fetch("dictionary.json", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(dictDoc, null, 2),
+      });
+      // 古い server.mjs は PUT にもファイルの中身を返してしまうので、応答の中身まで確かめる
+      let ok = false;
+      try { ok = JSON.parse(await res.text()).ok === true; } catch { ok = false; }
+      if (!res.ok || !ok) throw new Error("save");
+    } catch (err) {
+      note.textContent = "保存できませんでした。start.cmd のコンソールで Ctrl+C を押し、もう一度 start.cmd を実行してください";
+      return;
+    }
+    // ファイルから消えた語は VOICEVOX 側からも消す
+    const kept = new Set(words.map((w) => w.surface));
+    const removed = dictLoaded.filter((s) => !kept.has(s));
+    let deleted = 0;
+    if (removed.length) {
+      try {
+        const dict = await (await fetch(VV + "/user_dict")).json();
+        for (const [uuid, w] of Object.entries(dict)) {
+          if (removed.includes(w.surface)) {
+            if ((await fetch(VV + "/user_dict_word/" + uuid, { method: "DELETE" })).ok) deleted++;
+          }
+        }
+      } catch { /* VOICEVOX が落ちていても保存自体は済んでいる */ }
+    }
+    dictLoaded = words.map((w) => w.surface);
+    await ttsSyncDict(true);
+    note.textContent = "保存しました（" + words.length + " 語" + (deleted ? " / 削除 " + deleted : "") + "）";
+  });
+
+  $("dictBtn").addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const open = $("dictPanel").dataset.open !== "true";
+    $("dictPanel").dataset.open = String(open);
+    $("dictBtn").setAttribute("aria-expanded", String(open));
+    if (open) await dictLoad();
+  });
+
+  async function ttsToggle() {
+    if (ttsPlaying) { ttsPlaying = false; ttsAudio.pause(); ttsSyncUI(); return; }
+    if (!ttsSegs.length) ttsCollect();
+    if (!ttsSegs.length) { $("ttsNote").textContent = "読み上げる本文がありません"; return; }
+    if (!(await ttsCheck())) {
+      $("ttsNote").textContent = "VOICEVOX が起動していません";
+      return;
+    }
+    $("ttsNote").textContent = "";
+    await ttsLoadSpeakers();
+    // 一時停止からの再開
+    if (ttsAudio.src && ttsIndex >= 0 && !ttsAudio.ended) {
+      ttsPlaying = true; ttsSyncUI();
+      ttsAudio.play().catch(() => { ttsPlaying = false; ttsSyncUI(); });
+      return;
+    }
+    ttsPlayAt(ttsIndex >= 0 ? ttsIndex : 0);
+  }
+
+  // 本文が差し替わったら読み上げも作り直す
+  function ttsOnContentChanged() {
+    const wasPlaying = ttsPlaying;
+    ttsStop();
+    ttsClearCache();
+    ttsAtoms = []; ttsBlocks = []; ttsSegs = []; ttsText = "";
+    if (!$("ttsbar").hidden) {
+      ttsCollect();
+      if (wasPlaying) $("ttsNote").textContent = "本文が更新されたため読み上げを止めました";
+    }
+  }
+
+  $("ttsBtn").addEventListener("click", async () => {
+    const open = $("ttsbar").hidden;
+    $("ttsbar").hidden = !open;
+    ttsSyncUI();
+    if (!open) { ttsStop(); return; }
+    ttsCollect();
+    const alive = await ttsCheck();
+    $("ttsNote").textContent = alive ? "" : "VOICEVOX が起動していません";
+    if (alive) { await ttsLoadSpeakers(); await ttsSyncDict(); }
+  });
+
+  $("ttsPlay").addEventListener("click", ttsToggle);
+  $("ttsStop").addEventListener("click", ttsStop);
+
+  $("ttsSpeaker").addEventListener("change", (e) => {
+    settings.ttsSpeaker = Number(e.target.value);
+    saveSettings();
+    ttsClearCache();
+    if (ttsPlaying) ttsPlayAt(ttsIndex);
+  });
+  $("ttsVolume").addEventListener("input", (e) => {
+    settings.ttsVolume = Number(e.target.value);
+    ttsAudio.volume = settings.ttsVolume;
+    $("ttsVolumeOut").textContent = Math.round(settings.ttsVolume * 100) + "%";
+    saveSettings();
+  });
+  $("ttsSpeed").addEventListener("input", (e) => {
+    settings.ttsSpeed = Number(e.target.value);
+    $("ttsSpeedOut").textContent = settings.ttsSpeed.toFixed(2).replace(/0$/, "");
+    saveSettings();
+    ttsClearCache();
+  });
+
+  // 読み上げバーが開いているとき、段落をクリックするとそこから読む
+  content.addEventListener("click", (e) => {
+    if ($("ttsbar").hidden) return;
+    const sel = getSelection();
+    if (sel && !sel.isCollapsed) return;
+    const el = e.target.closest("p, h1, h2, h3");
+    if (!el) return;
+    if (!ttsBlocks.length) ttsCollect();
+    const block = ttsBlocks.find((b) => b.el === el);
+    if (!block) return;
+    const i = ttsSegs.findIndex((s) => s.end > block.start);
+    if (i >= 0) ttsPlayAt(i);
+  });
+
+  /* ============================================================
+     表示設定
+     ============================================================ */
+  function applySettings() {
+    document.documentElement.dataset.theme = settings.theme;
+    viewport.dataset.mode = settings.mode;
+    content.dataset.font  = settings.font;
+    content.style.fontSize   = settings.fontSize + "px";
+    content.style.lineHeight = String(settings.lineHeight);
+
+    $("fontSize").value = settings.fontSize;
+    $("fontSizeOut").textContent = settings.fontSize + "px";
+    $("lineHeight").value = settings.lineHeight;
+    $("lineHeightOut").textContent = settings.lineHeight.toFixed(2).replace(/0$/, "");
+    $("autoReload").checked = settings.autoReload;
+    $("ttsVolume").value = settings.ttsVolume;
+    $("ttsVolumeOut").textContent = Math.round(settings.ttsVolume * 100) + "%";
+    ttsAudio.volume = settings.ttsVolume;
+    $("ttsSpeed").value = settings.ttsSpeed;
+    $("ttsSpeedOut").textContent = settings.ttsSpeed.toFixed(2).replace(/0$/, "");
+    $("btnVertical").setAttribute("aria-pressed", String(settings.mode === "vertical"));
+    $("btnHorizontal").setAttribute("aria-pressed", String(settings.mode === "horizontal"));
+    for (const b of $("fontChoices").children)  b.setAttribute("aria-pressed", String(b.dataset.font === settings.font));
+    for (const b of $("themeChoices").children) b.setAttribute("aria-pressed", String(b.dataset.theme === settings.theme));
+  }
+
+  // 設定変更で行幅が変わるため、読んでいた位置の割合を保って復帰させる
+  function withPositionKept(mutate) {
+    const ratio = scrollMax() > 0 ? scrollPos() / scrollMax() : 0;
+    mutate();
+    applySettings();
+    saveSettings();
+    requestAnimationFrame(() => { scrollToPos(ratio * scrollMax(), false); updateProgress(); });
+  }
+
+  $("btnVertical").addEventListener("click",   () => withPositionKept(() => { settings.mode = "vertical"; }));
+  $("btnHorizontal").addEventListener("click", () => withPositionKept(() => { settings.mode = "horizontal"; }));
+  $("fontSize").addEventListener("input",   (e) => withPositionKept(() => { settings.fontSize = +e.target.value; }));
+  $("lineHeight").addEventListener("input", (e) => withPositionKept(() => { settings.lineHeight = +e.target.value; }));
+  $("fontChoices").addEventListener("click",  (e) => {
+    const b = e.target.closest("button[data-font]");
+    if (b) withPositionKept(() => { settings.font = b.dataset.font; });
+  });
+  $("themeChoices").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-theme]");
+    if (b) withPositionKept(() => { settings.theme = b.dataset.theme; });
+  });
+  $("autoReload").addEventListener("change", (e) => {
+    settings.autoReload = e.target.checked;
+    saveSettings();
+    setLive(source === "fsa" && settings.autoReload, null);
+  });
+
+  const closeSettings = () => {
+    $("settings").dataset.open = "false";
+    $("settingsBtn").setAttribute("aria-expanded", "false");
+  };
+  $("settingsBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = $("settings").dataset.open !== "true";
+    $("settings").dataset.open = String(open);
+    $("settingsBtn").setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("#settings") && !e.target.closest("#settingsBtn")) closeSettings();
+    if (!e.target.closest("#dictPanel") && !e.target.closest("#dictBtn")) {
+      $("dictPanel").dataset.open = "false";
+      $("dictBtn").setAttribute("aria-expanded", "false");
+    }
+  });
+
+  let resizeTimer;
+  addEventListener("resize", () => {
+    const ratio = scrollMax() > 0 ? scrollPos() / scrollMax() : 0;
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { scrollToPos(ratio * scrollMax(), false); updateProgress(); }, 120);
+  });
+
+  applySettings();
+  syncDiffUI();
+  updateProgress();
+  setLive(false, null);
+})();
+</script>
+</body>
+</html>

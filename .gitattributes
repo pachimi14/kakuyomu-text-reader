@@ -1,0 +1,3 @@
+* text=auto
+# cmd.exe は CRLF でないと解釈できない
+*.cmd text eol=crlf
