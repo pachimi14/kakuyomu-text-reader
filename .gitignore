@@ -2,3 +2,8 @@ node_modules/
 *.log
 .DS_Store
 Thumbs.db
+
+# アクセストークン。絶対にコミットしない（このリポジトリは Pages で公開される）
+tokens.txt
+*.token
+.env

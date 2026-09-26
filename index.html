@@ -405,6 +405,29 @@
   <div class="row">
     <label class="check"><input type="checkbox" id="autoReload" checked>ファイルの更新を自動で反映</label>
   </div>
+  <div class="row">
+    <label for="ghRepo">GitHub から読む（owner/repo）</label>
+    <input type="text" id="ghRepo" placeholder="pachimi14/kyuketsu-mahou-syojo04" autocomplete="off" spellcheck="false">
+  </div>
+  <div class="row">
+    <label for="ghPath">読むフォルダ</label>
+    <input type="text" id="ghPath" placeholder="episodes" autocomplete="off" spellcheck="false">
+  </div>
+  <div class="row">
+    <label for="ghToken">アクセストークン（非公開リポジトリのみ必要）</label>
+    <input type="password" id="ghToken" placeholder="github_pat_…" autocomplete="off" spellcheck="false">
+  </div>
+  <div class="row">
+    <div class="choices">
+      <button type="button" id="ghConnect">GitHub を読み込む</button>
+      <button type="button" id="ghForget">接続を消す</button>
+    </div>
+    <p class="hint" id="ghNote"></p>
+  </div>
+  <p class="hint">
+    トークンは Contents = Read-only の fine-grained token を推奨します。<br>
+    この端末のブラウザにのみ保存され、どこにも送信されません。
+  </p>
   <p class="hint">
     ルビ: <code>｜親文字《ルビ》</code> / <code>漢字《かんじ》</code><br>
     傍点: <code>《《強調》》</code><br>
@@ -761,21 +784,25 @@
   const stripExt = (name) => name.replace(/\.[^.]+$/, "");
   const natCmp = (a, b) => a.localeCompare(b, "ja", { numeric: true, sensitivity: "base" });
   const isCurrentDir = (name) => /^(current|latest|最新|最新版|final)$/i.test(name);
+  const isEpDir = (name) => /^ep[\s_\-]*0*\d+$/i.test(name);
 
   async function scanHandle(dirHandle) {
     const dirs = new Map();
-    async function walk(handle, path, depth) {
+    // insideEp: 直上が EP フォルダなら、その下は掘らない。
+    // EP05/notes/ のような補助フォルダを別のエピソードとして拾わないため。
+    async function walk(handle, path, depth, insideEp) {
       if (depth > 3) return;
       for await (const [name, h] of handle.entries()) {
         if (h.kind === "directory") {
-          await walk(h, path ? path + "/" + name : name, depth + 1);
+          if (insideEp) continue;
+          await walk(h, path ? path + "/" + name : name, depth + 1, isEpDir(name));
         } else if (isTextFile(name)) {
           if (!dirs.has(path)) dirs.set(path, []);
           dirs.get(path).push({ name, path: (path ? path + "/" : "") + name, getFile: () => h.getFile() });
         }
       }
     }
-    await walk(dirHandle, "", 0);
+    await walk(dirHandle, "", 0, false);
     return dirs;
   }
 
@@ -786,9 +813,116 @@
       const rel = (file.webkitRelativePath || file.name).split("/");
       rel.shift();                         // 先頭はルートフォルダ名
       const name = rel.pop();
+      // EP フォルダより下の階層は無視する（scanHandle の insideEp と同じ規則）
+      if (rel.some((seg, i) => i < rel.length - 1 && isEpDir(seg))) continue;
       const path = rel.join("/");
       if (!dirs.has(path)) dirs.set(path, []);
       dirs.get(path).push({ name, path: (path ? path + "/" : "") + name, getFile: async () => file });
+    }
+    return dirs;
+  }
+
+  /* ------------------------------------------------------------
+     ローカルサーバー経由（server.mjs の /api/index）
+     閲覧している端末に本文が無くても読める。
+     ------------------------------------------------------------ */
+  async function fetchServerIndex() {
+    const res = await fetch("api/index", { cache: "no-store" });
+    if (!res.ok) throw new Error("api/index " + res.status);
+    return res.json();
+  }
+
+  function dirsFromServerIndex(idx) {
+    const dirs = new Map();
+    for (const f of idx.files) {
+      const path = f.dir || "";
+      const rel = (path ? path + "/" : "") + f.name;
+      if (!dirs.has(path)) dirs.set(path, []);
+      dirs.get(path).push({
+        name: f.name,
+        path: rel,
+        stamp: f.size + ":" + f.mtime,
+        getFile: async () => {
+          const res = await fetch("api/file?path=" + encodeURIComponent(rel), { cache: "no-store" });
+          if (!res.ok) throw new Error("api/file " + res.status);
+          return new File([await res.arrayBuffer()], f.name, { lastModified: f.mtime });
+        },
+      });
+    }
+    return dirs;
+  }
+
+  /* ------------------------------------------------------------
+     GitHub 経由
+     Claude クラウドが push した最新をそのまま読む。
+     設定は端末の localStorage にのみ置く。
+     ------------------------------------------------------------ */
+  const gh = Object.assign(
+    { repo: "", path: "episodes", token: "", ref: "" },
+    store.get("ktr.github", {})
+  );
+  const saveGh = () => store.set("ktr.github", gh);
+
+  const ghHeaders = () => {
+    const h = { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
+    if (gh.token) h.Authorization = "Bearer " + gh.token;
+    return h;
+  };
+
+  async function ghJson(url) {
+    const res = await fetch(url, { headers: ghHeaders(), cache: "no-store" });
+    if (!res.ok) {
+      const hint =
+        res.status === 404 ? "リポジトリが見つかりません（非公開ならトークンを確認してください）"
+        : res.status === 401 ? "トークンが無効です"
+        : res.status === 403 ? "アクセスが拒否されました（権限か回数制限）"
+        : "GitHub エラー " + res.status;
+      throw new Error(hint);
+    }
+    return res.json();
+  }
+
+  // 既定ブランチ配下のツリーを1回で取り、本文フォルダの分だけ残す
+  async function fetchGitHubIndex() {
+    if (!gh.repo) throw new Error("リポジトリが設定されていません");
+    const base = "https://api.github.com/repos/" + gh.repo;
+    const ref = gh.ref || (await ghJson(base)).default_branch || "main";
+    gh.ref = ref;
+    const tree = await ghJson(base + "/git/trees/" + encodeURIComponent(ref) + "?recursive=1");
+    const prefix = (gh.path || "").replace(/^\/+|\/+$/g, "");
+    const files = [];
+    for (const node of tree.tree || []) {
+      if (node.type !== "blob" || !isTextFile(node.path)) continue;
+      if (prefix && !node.path.startsWith(prefix + "/")) continue;
+      const rest = prefix ? node.path.slice(prefix.length + 1) : node.path;
+      const seg = rest.split("/");
+      const name = seg.pop();
+      if (seg.some((s, i) => i < seg.length - 1 && isEpDir(s))) continue;   // EP 配下の notes/ を除く
+      files.push({ dir: seg.join("/"), name, sha: node.sha, size: node.size || 0 });
+    }
+    if (!files.length) throw new Error("テキストが見つかりません（フォルダ名を確認してください）");
+    return { root: prefix || gh.repo, files, truncated: !!tree.truncated };
+  }
+
+  function dirsFromGitHubIndex(idx) {
+    const dirs = new Map();
+    const base = "https://api.github.com/repos/" + gh.repo + "/git/blobs/";
+    for (const f of idx.files) {
+      const path = f.dir || "";
+      if (!dirs.has(path)) dirs.set(path, []);
+      dirs.get(path).push({
+        name: f.name,
+        path: (path ? path + "/" : "") + f.name,
+        stamp: f.sha,                              // sha が変われば中身が変わっている
+        getFile: async () => {
+          const res = await fetch(base + f.sha, {
+            headers: Object.assign(ghHeaders(), { Accept: "application/vnd.github.raw" }),
+            cache: "no-store",
+          });
+          if (!res.ok) throw new Error("blob " + res.status);
+          return new File([await res.arrayBuffer()], f.name);
+        },
+      });
     }
     return dirs;
   }
@@ -834,9 +968,17 @@
   }
 
   async function rescan() {
-    const dirs = source === "fsa" ? await scanHandle(rootHandle) : scanFileList($("dirInput").files);
+    let dirs;
+    if (source === "fsa") dirs = await scanHandle(rootHandle);
+    else if (source === "server") dirs = dirsFromServerIndex(await fetchServerIndex());
+    else if (source === "github") dirs = dirsFromGitHubIndex(await fetchGitHubIndex());
+    else dirs = scanFileList($("dirInput").files);
     return buildLibrary(dirs);
   }
+
+  // 一覧の内容が変わったかを見るための署名。版の中身の変化も拾う。
+  const libraryStamp = (lib) =>
+    lib.map((ep) => ep.label + ":" + ep.versions.map((v) => v.label + "@" + (v.entry.stamp || "")).join(",")).join("|");
 
   const librarySignature = (lib) =>
     lib.map((ep) => ep.label + ":" + ep.versions.map((v) => v.label).join(",")).join("|");
@@ -886,6 +1028,63 @@
   });
 
   $("openBtn").addEventListener("click", openWithPicker);
+
+  /* ---- ローカルサーバー / GitHub から読む ---- */
+  const ghNote = (msg, bad) => {
+    const el = $("ghNote");
+    el.textContent = msg || "";
+    el.style.color = bad ? "#c0392b" : "";
+  };
+
+  async function openFromServer(keep) {
+    const idx = await fetchServerIndex();
+    source = "server";
+    rootHandle = null;
+    rootName = idx.root || "";
+    await useLibrary(buildLibrary(dirsFromServerIndex(idx)), keep || null);
+  }
+
+  async function openFromGitHub(keep) {
+    const idx = await fetchGitHubIndex();
+    source = "github";
+    rootHandle = null;
+    rootName = idx.root || gh.repo;
+    saveGh();
+    await useLibrary(buildLibrary(dirsFromGitHubIndex(idx)), keep || null);
+    const eps = new Set(idx.files.map((f) => f.dir)).size;
+    ghNote(`${gh.repo} を読み込みました（${eps} フォルダ / ${idx.files.length} ファイル）`
+      + (idx.truncated ? " ※ツリーが大きく一部省略されました" : ""));
+  }
+
+  $("ghConnect").addEventListener("click", async () => {
+    gh.repo = $("ghRepo").value.trim()
+      .replace(/^https?:\/\/github\.com\//i, "")
+      .replace(/\.git$/i, "")
+      .replace(/\/(tree|blob)\/.*$/i, "")
+      .replace(/^\/+|\/+$/g, "");
+    gh.path = $("ghPath").value.trim().replace(/^\/+|\/+$/g, "") || "episodes";
+    gh.token = $("ghToken").value.trim();
+    gh.ref = "";
+    if (!/^[^/]+\/[^/]+$/.test(gh.repo)) {
+      ghNote("owner/repo の形で入れてください", true);
+      return;
+    }
+    $("ghRepo").value = gh.repo;
+    $("ghPath").value = gh.path;
+    ghNote("読み込み中…");
+    try {
+      await openFromGitHub(library.length ? currentKeep() : null);
+    } catch (err) {
+      ghNote(err.message, true);
+    }
+  });
+
+  $("ghForget").addEventListener("click", () => {
+    gh.repo = ""; gh.token = ""; gh.ref = "";
+    saveGh();
+    $("ghRepo").value = ""; $("ghToken").value = "";
+    ghNote("保存した接続を消しました。");
+  });
 
   const currentKeep = () => ({
     ep: library[epIndex] && library[epIndex].label,
@@ -1103,7 +1302,7 @@
       updateProgress();
       viewport.focus();
     });
-    setLive(source === "fsa" && settings.autoReload, null);
+    setLive(source !== "input" && settings.autoReload, null);
   }
 
   function setLive(on, message) {
@@ -1229,6 +1428,35 @@
     }
   }
   setInterval(poll, 2500);
+
+  // サーバー / GitHub は一覧に更新印（mtime・sha）が入るので、
+  // 本文を毎回落とさずに一覧の照合だけで変化を判定する。
+  async function pollRemote() {
+    if (polling || !library.length || !settings.autoReload) return;
+    if (source !== "server" && source !== "github") return;
+    polling = true;
+    try {
+      const lib = await rescan();
+      if (!lib.length || libraryStamp(lib) === libraryStamp(library)) return;
+      const keep = currentKeep();
+      library = lib;
+      const at = library.findIndex((e) => e.label === keep.ep);
+      epIndex = at >= 0 ? at : 0;
+      const versions = library[epIndex].versions;
+      const found = versions.findIndex((v) => v.label === keep.ver);
+      verIndex = found >= 0 ? found : versions.length - 1;
+      fillEpisodeSelect();
+      await showSelection(true);
+      setLive(true, null);
+    } catch (err) {
+      setLive(false, source === "github" ? "GitHub へ接続できません" : "サーバーへ接続できません");
+    } finally {
+      polling = false;
+    }
+  }
+  // GitHub は API の回数制限があるので間隔を空ける
+  setInterval(() => { if (source === "server") pollRemote(); }, 3000);
+  setInterval(() => { if (source === "github") pollRemote(); }, 30000);
 
   /* ============================================================
      操作
@@ -1734,7 +1962,7 @@
   $("autoReload").addEventListener("change", (e) => {
     settings.autoReload = e.target.checked;
     saveSettings();
-    setLive(source === "fsa" && settings.autoReload, null);
+    setLive(source !== "input" && settings.autoReload, null);
   });
 
   const closeSettings = () => {
@@ -1766,6 +1994,30 @@
   syncDiffUI();
   updateProgress();
   setLive(false, null);
+
+  /* ============================================================
+     起動時の自動接続
+     GitHub の設定があればそれを使う。無ければローカルサーバーを試す。
+     どちらも駄目なら、これまでどおりフォルダを開いてもらう。
+     ============================================================ */
+  $("ghRepo").value = gh.repo || "";
+  $("ghPath").value = gh.path || "episodes";
+  $("ghToken").value = gh.token || "";
+
+  (async () => {
+    if (gh.repo) {
+      ghNote("読み込み中…");
+      try {
+        await openFromGitHub(null);
+        return;
+      } catch (err) {
+        ghNote(err.message, true);
+      }
+    }
+    try {
+      await openFromServer(null);
+    } catch { /* サーバー無し。空の画面のままにする */ }
+  })();
 })();
 </script>
 </body>
