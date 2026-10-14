@@ -438,6 +438,10 @@
     <input type="text" id="ghPath" placeholder="episodes" autocomplete="off" spellcheck="false">
   </div>
   <div class="row">
+    <label for="ghRef">ブランチ（空ならリポジトリの既定ブランチ）</label>
+    <input type="text" id="ghRef" placeholder="main" autocomplete="off" spellcheck="false">
+  </div>
+  <div class="row">
     <label for="ghToken">アクセストークン（非公開リポジトリのみ必要）</label>
     <input type="password" id="ghToken" placeholder="github_pat_…" autocomplete="off" spellcheck="false">
   </div>
@@ -924,7 +928,11 @@
       if (seg.some((s, i) => i < seg.length - 1 && isEpDir(s))) continue;   // EP 配下の notes/ を除く
       files.push({ dir: seg.join("/"), name, sha: node.sha, size: node.size || 0 });
     }
-    if (!files.length) throw new Error("テキストが見つかりません（フォルダ名を確認してください）");
+    if (!files.length) {
+      // 既定ブランチに本文が無いことがある（作業用ブランチが既定になっている等）ので、
+      // 見た場所をそのまま出してブランチ指定に誘導する。
+      throw new Error(ref + " の " + (prefix || "/") + " にテキストがありません（ブランチとフォルダを確認してください）");
+    }
     return { root: prefix || gh.repo, files, truncated: !!tree.truncated };
   }
 
@@ -1075,26 +1083,31 @@
     rootName = idx.root || gh.repo;
     saveGh();
     await useLibrary(buildLibrary(dirsFromGitHubIndex(idx)), keep || null);
+    $("ghRef").value = gh.ref;
     const eps = new Set(idx.files.map((f) => f.dir)).size;
     ghNote(`${gh.repo} を読み込みました（${eps} フォルダ / ${idx.files.length} ファイル）`
       + (idx.truncated ? " ※ツリーが大きく一部省略されました" : ""));
   }
 
   $("ghConnect").addEventListener("click", async () => {
-    gh.repo = $("ghRepo").value.trim()
+    const raw = $("ghRepo").value.trim()
       .replace(/^https?:\/\/github\.com\//i, "")
       .replace(/\.git$/i, "")
-      .replace(/\/(tree|blob)\/.*$/i, "")
       .replace(/^\/+|\/+$/g, "");
+    // https://github.com/owner/repo/tree/<ブランチ>/… を貼られたら、その枝も受け取る
+    const tree = /^([^/]+\/[^/]+)\/(?:tree|blob)\/(.+)$/.exec(raw);
+    gh.repo = tree ? tree[1] : raw;
     gh.path = $("ghPath").value.trim().replace(/^\/+|\/+$/g, "") || "episodes";
     gh.token = $("ghToken").value.trim();
-    gh.ref = "";
+    gh.ref = $("ghRef").value.trim();
+    if (tree && !gh.ref) gh.ref = tree[2].split("/")[0];
     if (!/^[^/]+\/[^/]+$/.test(gh.repo)) {
       ghNote("owner/repo の形で入れてください", true);
       return;
     }
     $("ghRepo").value = gh.repo;
     $("ghPath").value = gh.path;
+    $("ghRef").value = gh.ref;
     ghNote("読み込み中…");
     try {
       await openFromGitHub(library.length ? currentKeep() : null);
@@ -1106,7 +1119,7 @@
   $("ghForget").addEventListener("click", () => {
     gh.repo = ""; gh.token = ""; gh.ref = "";
     saveGh();
-    $("ghRepo").value = ""; $("ghToken").value = "";
+    $("ghRepo").value = ""; $("ghToken").value = ""; $("ghRef").value = "";
     ghNote("保存した接続を消しました。");
   });
 
@@ -2075,6 +2088,7 @@
   $("ghRepo").value = gh.repo || "";
   $("ghPath").value = gh.path || "episodes";
   $("ghToken").value = gh.token || "";
+  $("ghRef").value = gh.ref || "";
 
   (async () => {
     if (gh.repo) {
