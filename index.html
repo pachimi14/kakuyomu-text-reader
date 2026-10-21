@@ -757,7 +757,8 @@
       if (showDel) {
         for (let k = used; k < dels.length; k++) {
           // 空行の増減は「変更箇所」に数えない（送っても見るものがないため）
-          if (isBlank(dels[k])) { out.push('<p class="blank"></p>'); continue; }
+          // 消えた空行。コピーでは原稿に無い行なので落とす（gone）
+          if (isBlank(dels[k])) { out.push('<p class="blank gone"></p>'); continue; }
           out.push(`<p class="chg" data-chg="${changes++}"><del>${inline(dels[k])}</del></p>`);
         }
       } else if (rest.length) {
@@ -1596,6 +1597,64 @@
     }
   }
   $("reloadBtn").addEventListener("click", reloadNow);
+
+  /* ============================================================
+     コピー
+     ブラウザ任せだと段落ごとに空行が挟まり、空行の段落は飛ばされ、
+     ルビは「漢字かんじ」とつながる。選んだ範囲を原稿の書き方に戻して渡す。
+     ============================================================ */
+  // ブロック（原稿の1行）のうち、範囲に入っている部分を原稿の記法で返す
+  function sourceOf(node, range) {
+    if (node.nodeType === 3) {
+      if (!range.intersectsNode(node)) return "";
+      const s = node === range.startContainer ? range.startOffset : 0;
+      const e = node === range.endContainer ? range.endOffset : node.nodeValue.length;
+      return node.nodeValue.slice(s, e);
+    }
+    if (node.nodeType !== 1 || !range.intersectsNode(node)) return "";
+    const tag = node.tagName;
+    if (tag === "DEL" || tag === "RT") return "";
+    // ルビと傍点は一部だけ選ばれていても記法ごと渡す（半端に切ると原稿に戻せない）
+    if (tag === "RUBY") {
+      const rt = node.querySelector("rt");
+      const base = [...node.childNodes].filter((c) => c !== rt).map((c) => c.textContent).join("");
+      return "｜" + base + "《" + (rt ? rt.textContent : "") + "》";
+    }
+    if (tag === "EM" && node.classList.contains("bouten")) return "《《" + node.textContent + "》》";
+    let out = "";
+    for (const c of node.childNodes) out += sourceOf(c, range);
+    return out;
+  }
+
+  function sourceOfRange(range) {
+    const lines = [];
+    for (const block of content.children) {
+      if (!range.intersectsNode(block)) continue;
+      if (block.classList.contains("blank")) {
+        if (!block.classList.contains("gone")) lines.push("");
+        continue;
+      }
+      if (block.tagName === "HR") { lines.push("---"); continue; }
+      const text = sourceOf(block, range);
+      // 空になるのは、削除だけの行か、範囲の端が行の境目に掛かっただけの行
+      if (!text) continue;
+      const h = /^H([1-3])$/.exec(block.tagName);
+      const whole = range.comparePoint(block, 0) === 0;    // 見出しの頭から選んでいるか
+      lines.push(h && whole ? "#".repeat(Number(h[1])) + " " + text : text);
+    }
+    return lines.join("\n");
+  }
+
+  document.addEventListener("copy", (e) => {
+    const sel = getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+    const ranges = [];
+    for (let i = 0; i < sel.rangeCount; i++) ranges.push(sel.getRangeAt(i));
+    // 本文の中だけを選んでいるときに限る。ヘッダなどにまたがるならブラウザに任せる
+    if (!ranges.every((r) => content.contains(r.commonAncestorContainer))) return;
+    e.clipboardData.setData("text/plain", ranges.map(sourceOfRange).join("\n"));
+    e.preventDefault();
+  });
 
   /* ============================================================
      操作
