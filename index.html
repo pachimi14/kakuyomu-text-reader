@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ja" data-theme="light">
+<html lang="ja" data-theme="sepia">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -109,6 +109,8 @@
   .seg { display: inline-flex; border: 1px solid var(--panel-border); border-radius: 6px; overflow: hidden; }
   .seg button { border: 0; border-radius: 0; background: transparent; }
   .seg button + button { border-left: 1px solid var(--panel-border); }
+  /* .seg button の transparent が後勝ちして、選択中が白文字だけの薄い表示になっていた */
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
   label.check { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
   label.check input { accent-color: var(--accent); }
 
@@ -138,24 +140,34 @@
   }
   .row output { font-variant-numeric: tabular-nums; color: var(--text); }
   input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .row input[type="text"], .row input[type="password"] {
+    width: 100%; font: inherit; font-size: 13px; color: var(--text);
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 6px; padding: 5px 8px;
+  }
   .choices { display: flex; gap: 6px; }
   .choices button { flex: 1; text-align: center; max-width: none; }
   .hint { font-size: 11px; line-height: 1.8; color: var(--text-dim); margin: 12px 0 0; }
   .hint code { font-family: ui-monospace, Consolas, monospace; }
+  /* 狭い画面でだけ使う部品。広い画面ではヘッダに全部並んでいるので出さない */
+  .compact-tools, .compact-only, .diff-break { display: none; }
+  .slot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 
   /* ---------- reading stage ---------- */
   main { flex: 1 1 auto; position: relative; min-height: 0; background: var(--paper); }
   .stage { position: absolute; inset: 0; padding: 0 3.2vw; }
   .viewport { height: 100%; overflow: auto; scrollbar-width: none; }
   .viewport::-webkit-scrollbar { display: none; }
+  .viewport:focus { outline: none; }                 /* 本文へ移すフォーカスは、キー操作のためだけのもの */
 
   .content {
     color: var(--paper-text);
     font-family: "Yu Mincho", YuMincho, "Hiragino Mincho ProN", "ヒラギノ明朝 ProN W3",
                  "Noto Serif JP", "MS PMincho", serif;
-    font-size: 18px;
-    line-height: 1.9;
-    letter-spacing: .02em;
+    /* カクヨムのスマホ表示（文字サイズ「中」）と同じ。字間を空けると1行の字数がずれる */
+    font-size: 16px;
+    line-height: 1.8;
+    letter-spacing: 0;
     text-align: justify;
   }
   .content[data-font="gothic"] {
@@ -318,15 +330,44 @@
   body.dragging .dropring { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
   [hidden] { display: none !important; }
 
-  /* 狭い画面。ヘッダを1行に詰めると項目が潰れて画面外へ出てしまうので折り返す。
-     横スクロールで隠れた操作を探させるより、行を増やして全部見せる。 */
+  /* 狭い画面。常に出すのは話・差分・表示設定の3つだけにして1行に収める。
+     版・書字方向・フォルダを開く・読み上げ・更新は表示設定パネルへ移す（JS の placeCompact）。 */
   @media (max-width: 720px) {
-    header, .subbar { flex-wrap: wrap; row-gap: 6px; padding: 6px 8px; }
-    header > *, .subbar > * { flex-shrink: 0; }
-    header .spacer { display: none; }                 /* 行を分けると1行ぶん無駄になる */
-    header button, header select, .subbar button, .subbar select { padding: 5px 8px; }
-    /* 話の選択は伸ばさない。伸ばすと1行を占有して、ヘッダが不必要に高くなる */
-    #epSelect { flex: 0 1 11rem; min-width: 6rem; max-width: none; }
+    header, .subbar { padding: 6px 8px; gap: 6px; }
+    header button, header select { padding: 6px 10px; }
+    header .spacer { display: none; }
+    #epSelect { flex: 1 1 auto; min-width: 0; max-width: none; }
+    header > button { flex: none; }
+
+    /* 差分バー: 前の変更・次の変更・変更数・削除も表示・詳細設定 を1行に。
+       比較元と比較の説明は「詳細設定」を押したときだけ次の行に出す */
+    .subbar { flex-wrap: wrap; row-gap: 6px; }
+    .subbar button, .subbar select { padding: 4px 7px; }
+    .compact-only { display: inline-block; }
+    #changeNav     { order: 1; }
+    #changeInfo    { order: 2; }
+    #showDelLabel  { order: 3; }
+    #diffDetailBtn { order: 4; }
+    .diff-detail   { order: 6; }
+    .diff-break    { order: 5; display: block; flex-basis: 100%; height: 0; }   /* .diff-detail より後に書く */
+    #diffbar .spacer { display: none; }
+    #diffbar[data-detail="false"] .diff-detail { display: none; }
+    #changeNo { width: 4.5ch; }
+    #changeInfo .lbl { display: none; }               /* 「/ 136 箇所」で数と分かるので削って1行に収める */
+
+    footer { display: none; }
+    .kbd-hint { display: none; }                      /* キーボードは無いので */
+    .stage { padding: 0 20px; }                       /* カクヨムのスマホ表示の左右余白 */
+
+    .compact-tools { display: block; }
+    .compact-tools .row > label { margin-bottom: 4px; }
+    .compact-tools .nav { display: flex; width: 100%; }
+    .compact-tools #verSelect { flex: 1 1 auto; max-width: none; }
+    .compact-tools .slot > button { flex: 1 1 0; max-width: none; }
+    .compact-tools .slot .seg { width: 100%; }
+    .compact-tools .slot .seg button { flex: 1; max-width: none; }
+    .compact-tools { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--panel-border); }
+
     /* パネルが広いと、チェックボックスと文字が両端へ離れて対応が読めなくなる */
     #settings label.check { justify-content: flex-start; gap: 8px; }
     .settings {
@@ -338,42 +379,48 @@
       -webkit-overflow-scrolling: touch;
     }
   }
+  /* 390px 前後の端末では差分バーが1行に収まらないので、文言を縮める */
+  @media (max-width: 400px) {
+    #diffbar .long { display: none; }
+  }
 
 </style>
 </head>
 <body>
 
 <header>
-  <button class="primary" id="openBtn">フォルダを開く</button>
+  <button class="primary" id="openBtn" data-compact="act">フォルダを開く</button>
   <select id="epSelect" title="話を選ぶ" disabled></select>
-  <div class="nav">
+  <div class="nav" data-compact="ver">
     <button id="prevVer" title="前の版 ( [ )" disabled>‹</button>
     <select id="verSelect" title="版を選ぶ" disabled></select>
     <button id="nextVer" title="次の版 ( ] )" disabled>›</button>
   </div>
   <button id="diffBtn" aria-pressed="false" title="差分表示の切替 ( D )" disabled>差分</button>
-  <button id="ttsBtn" aria-pressed="false" title="読み上げ ( V )" disabled>読み上げ</button>
-  <button id="reloadBtn" title="いま読み直す ( R )" disabled>更新</button>
+  <button id="ttsBtn" aria-pressed="false" title="読み上げ ( V )" disabled data-compact="act">読み上げ</button>
+  <button id="reloadBtn" title="いま読み直す ( R )" disabled data-compact="act">更新</button>
   <span class="spacer"></span>
-  <div class="seg" role="group" aria-label="書字方向">
-    <button id="btnVertical"   aria-pressed="true">縦書き</button>
-    <button id="btnHorizontal" aria-pressed="false">横書き</button>
+  <div class="seg" role="group" aria-label="書字方向" data-compact="dir">
+    <button id="btnVertical"   aria-pressed="false">縦書き</button>
+    <button id="btnHorizontal" aria-pressed="true">横書き</button>
   </div>
   <button id="settingsBtn" aria-expanded="false">表示設定</button>
   <input type="file" id="dirInput" webkitdirectory directory multiple hidden>
 </header>
 
-<div class="subbar" id="diffbar" hidden>
-  <label class="check" for="baseSelect">比較元</label>
-  <select id="baseSelect"></select>
-  <label class="check"><input type="checkbox" id="showDel" checked>削除も表示</label>
-  <span class="nav">
+<div class="subbar" id="diffbar" data-detail="false" hidden>
+  <label class="check diff-detail" for="baseSelect">比較元</label>
+  <select id="baseSelect" class="diff-detail"></select>
+  <label class="check" id="showDelLabel"><input type="checkbox" id="showDel" checked><span>削除<span class="long">も表示</span></span></label>
+  <span class="nav" id="changeNav">
     <button id="prevChange" title="前の変更 ( P )">前の変更</button>
     <button id="nextChange" title="次の変更 ( N )">次の変更</button>
   </span>
-  <span id="changeInfo">変更 <input type="number" id="changeNo" min="1" step="1" title="番号を入れるとその変更へ移動"> / <span id="changeTotal">0</span> 箇所</span>
+  <span id="changeInfo"><span class="lbl">変更 </span><input type="number" id="changeNo" min="1" step="1" inputmode="numeric" title="番号を入れるとその変更へ移動"> / <span id="changeTotal">0</span> 箇所</span>
+  <button id="diffDetailBtn" class="compact-only" aria-pressed="false">詳細<span class="long">設定</span></button>
+  <span class="diff-break diff-detail"></span>
   <span class="spacer"></span>
-  <span class="note" id="diffNote"></span>
+  <span class="note diff-detail" id="diffNote"></span>
 </div>
 
 <div class="subbar ttsbar" id="ttsbar" hidden>
@@ -403,13 +450,19 @@
 </div>
 
 <div class="settings" id="settings" data-open="false">
-  <div class="row">
-    <label for="fontSize">文字サイズ <output id="fontSizeOut">18px</output></label>
-    <input type="range" id="fontSize" min="14" max="30" step="1" value="18">
+  <div class="compact-tools">
+    <div class="row"><label>版</label><div class="slot" data-slot="ver"></div></div>
+    <div class="row"><label>書字方向</label><div class="slot" data-slot="dir"></div></div>
+    <div class="row"><label>操作</label><div class="slot" data-slot="act"></div></div>
+    <div class="row"><div class="slot note" data-slot="status"></div></div>
   </div>
   <div class="row">
-    <label for="lineHeight">行間 <output id="lineHeightOut">1.9</output></label>
-    <input type="range" id="lineHeight" min="1.5" max="2.6" step="0.05" value="1.9">
+    <label for="fontSize">文字サイズ <output id="fontSizeOut">16px</output></label>
+    <input type="range" id="fontSize" min="14" max="30" step="1" value="16">
+  </div>
+  <div class="row">
+    <label for="lineHeight">行間 <output id="lineHeightOut">1.8</output></label>
+    <input type="range" id="lineHeight" min="1.5" max="2.6" step="0.05" value="1.8">
   </div>
   <div class="row">
     <label>書体</label>
@@ -421,8 +474,8 @@
   <div class="row">
     <label>背景</label>
     <div class="choices" id="themeChoices">
-      <button data-theme="light" aria-pressed="true">白</button>
-      <button data-theme="sepia" aria-pressed="false">セピア</button>
+      <button data-theme="light" aria-pressed="false">白</button>
+      <button data-theme="sepia" aria-pressed="true">セピア</button>
       <button data-theme="dark"  aria-pressed="false">夜</button>
     </div>
   </div>
@@ -456,7 +509,7 @@
     トークンは Contents = Read-only の fine-grained token を推奨します。<br>
     この端末のブラウザにのみ保存され、どこにも送信されません。
   </p>
-  <p class="hint">
+  <p class="hint kbd-hint">
     ルビ: <code>｜親文字《ルビ》</code> / <code>漢字《かんじ》</code><br>
     傍点: <code>《《強調》》</code><br>
     <code>←→</code> ページ送り / <code>[ ]</code> 版の前後 / <code>D</code> 差分 / <code>N P</code> 変更箇所
@@ -465,7 +518,7 @@
 
 <main id="main">
   <div class="stage">
-    <div class="viewport" id="viewport" data-mode="vertical" tabindex="0">
+    <div class="viewport" id="viewport" data-mode="horizontal" tabindex="0">
       <div class="content" id="content" data-font="mincho" data-diff="off"></div>
     </div>
   </div>
@@ -475,6 +528,7 @@
       原稿フォルダをこの画面にドロップしてください。<br>
       「フォルダを開く」から選ぶこともできます。
     </p>
+    <button class="primary compact-only" id="emptyOpen">フォルダを開く</button>
     <pre>drafts/
 ├ EP01/   V1.md V2.md … V6.md
 ├ EP02/   V1.md …
@@ -484,7 +538,7 @@
 </main>
 
 <footer>
-  <span class="live" id="liveState" data-on="false">—</span>
+  <span class="live" id="liveState" data-on="false" data-compact="status">—</span>
   <span class="path" id="filePath"></span>
   <span id="charCount">—</span>
   <div class="progress"><i id="progressBar"></i></div>
@@ -504,11 +558,11 @@
      設定の保存 / 復元
      ============================================================ */
   const DEFAULTS = {
-    mode: "vertical",
-    fontSize: 18,
-    lineHeight: 1.9,
+    mode: "horizontal",
+    fontSize: 16,          // カクヨムのスマホ表示「中」と同じ
+    lineHeight: 1.8,
     font: "mincho",
-    theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
+    theme: "sepia",
     diff: false,
     showDel: true,
     autoReload: true,
@@ -527,7 +581,11 @@
       try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* file:// 等で失敗しても無視 */ }
     },
   };
-  const settings = Object.assign({}, DEFAULTS, store.get("ktr.settings", {}));
+  const stored = store.get("ktr.settings", {});
+  // v2 で文字サイズと行間の既定をカクヨムに合わせた。以前の既定値（18px / 1.9）や
+  // 試しに動かした値が残っていると変わらないので、一度だけ新しい既定へ戻す。
+  if (!(stored.v >= 2)) { delete stored.fontSize; delete stored.lineHeight; stored.v = 2; }
+  const settings = Object.assign({}, DEFAULTS, stored);
   const saveSettings = () => store.set("ktr.settings", settings);
 
   /* ============================================================
@@ -1060,6 +1118,7 @@
   });
 
   $("openBtn").addEventListener("click", openWithPicker);
+  $("emptyOpen").addEventListener("click", openWithPicker);
 
   /* ---- ローカルサーバー / GitHub から読む ---- */
   const ghNote = (msg, bad) => {
@@ -1419,6 +1478,11 @@
         if (i >= 0) goChangeTo(i);
       }));
     }
+  });
+  $("diffDetailBtn").addEventListener("click", () => {
+    const on = $("diffbar").dataset.detail !== "true";
+    $("diffbar").dataset.detail = String(on);
+    $("diffDetailBtn").setAttribute("aria-pressed", String(on));
   });
   function syncDiffUI() {
     $("diffBtn").setAttribute("aria-pressed", String(settings.diff));
@@ -2065,6 +2129,27 @@
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => { scrollToPos(ratio * scrollMax(), false); updateProgress(); }, 120);
   });
+
+  /* ---- 狭い画面では、常に出さない操作を表示設定パネルへ移す ----
+     要素ごと動かすので、id もイベントもそのまま使える。元の位置にはコメントを目印に残す。 */
+  const compactMQ = matchMedia("(max-width: 720px)");
+  const movables = [...document.querySelectorAll("[data-compact]")].map((el) => {
+    const home = document.createComment(el.id || el.dataset.compact);
+    el.before(home);
+    return { el, home };
+  });
+  function placeCompact() {
+    for (const { el, home } of movables) {
+      if (compactMQ.matches) document.querySelector(`[data-slot="${el.dataset.compact}"]`).append(el);
+      else home.after(el);
+    }
+  }
+  compactMQ.addEventListener("change", placeCompact);
+  placeCompact();
+  // パネルから読み上げやフォルダ選択を始めたら、パネルは邪魔なので閉じる
+  for (const id of ["openBtn", "ttsBtn"]) {
+    $(id).addEventListener("click", () => { if (compactMQ.matches) closeSettings(); });
+  }
 
   applySettings();
   syncDiffUI();
